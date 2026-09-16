@@ -1,4 +1,8 @@
-# cwrap /kræp/
+<div align="center">
+  <img src="media/logo.png" height="300" alt="">
+</div>
+
+<h1 align="center"><code>cwrap</code> /kræp/</h1>
 
 This is a small C comment formatter written in C17.
 
