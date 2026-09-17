@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "app/cli.h"
+#include "app/cwrap_version.h"
 
 /**
  * @brief Parses a terminated argument vector.
@@ -341,9 +342,9 @@ static void test_unknown_short_option(void) {
   TEST_CHECK(strcmp(options.error_message, "unknown option '-x'") == 0);
 }
 
-// The injected `CWRAP_VERSION` macro is defined and non-empty.
-static void test_version_macro_present(void) {
-  TEST_CHECK(sizeof(CWRAP_VERSION) > 1);
+// The generated version accessor returns a non-empty version.
+static void test_version_accessor_present(void) {
+  TEST_CHECK(cwrap_version_string()[0] != '\0');
 }
 
 // `cli_print_version` writes exactly one `cwrap <version>` line and nothing else.
@@ -360,7 +361,7 @@ static void test_print_version_writes_version_line(void) {
   TEST_ASSERT(rc == 0);
 
   char expected[64];
-  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", CWRAP_VERSION);
+  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
   TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
   TEST_CHECK(strcmp(buf, expected) == 0);
   TEST_CHECK(len == strlen(expected));
@@ -475,7 +476,7 @@ TEST_LIST = {
     {"options after file", test_options_after_file},
     {"unknown long option", test_unknown_long_option},
     {"unknown short option", test_unknown_short_option},
-    {"version macro present", test_version_macro_present},
+    {"version accessor present", test_version_accessor_present},
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
     {"print version reports flush failure errno", test_print_version_reports_flush_failure_errno},

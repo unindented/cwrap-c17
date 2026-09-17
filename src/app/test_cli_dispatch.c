@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "app/cli_dispatch.h"
+#include "app/cwrap_version.h"
 #include "app/exit_code.h"
 #include "core/error.h"
 #include "runtime/fs.h"
@@ -203,10 +204,8 @@ static void test_version_action_reports_ok(void) {
   char* argv[] = {"cwrap", "--version", NULL};
   struct DispatchOutput dispatch_out;
   TEST_CHECK(dispatch_capturing(2, argv, &dispatch_out) == EXIT_CODE_OK);
-  // Composed rather than concatenated with the macro: `"cwrap " CWRAP_VERSION` is a string
-  // concatenation cppcheck cannot parse without the build's `-DCWRAP_VERSION`.
   char expected[64];
-  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", CWRAP_VERSION);
+  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
   TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
   TEST_CHECK(strcmp(dispatch_out.stdout_out, expected) == 0);
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');

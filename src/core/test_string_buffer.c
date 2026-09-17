@@ -154,7 +154,7 @@ static void test_steal_from_never_grown_buffer(void) {
 // the contract in `core/string_buffer.h`. Three things rest on the reset: an append after the free
 // rebuilds from empty rather than reallocating the freed pointer, a second free is not a double
 // free, and the field state is what `string_buffer_init` would have written. The arena carries the
-// same contract and pins it in `tests/test_arena.c`.
+// same contract and pins it in `test_arena.c`.
 static void test_free_allows_reuse(void) {
   struct StringBuffer buffer;
   string_buffer_init(&buffer);

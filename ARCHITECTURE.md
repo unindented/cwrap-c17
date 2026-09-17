@@ -8,8 +8,9 @@
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
 - [src/runtime/](src/runtime/): Filesystem services that interact with the host.
 - [src/core/](src/core/): Small reusable primitives for diagnostics, parsing, and ASCII classification.
-- [tests/](tests/): `acutest` unit tests and golden fixtures. Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence check also rewraps these files and every first-party source file at several widths.
-- [scripts/](scripts/): Release packaging. `package-release.sh` builds one supported target in an isolated build directory and archives the binary with its license and user documentation.
+- [tests/](tests/): Golden and idempotence test suites. Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence check also rewraps these files and every first-party source file at several widths.
+- [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): Project entry point and supported build configurations.
+- [cmake/](cmake/): Build profiles, quality tools, packaging, the golden and idempotence test drivers, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
 - [vendor/](vendor/): Bundled dependencies (`copt`, `acutest`).
 
 First-party dependencies point inward:

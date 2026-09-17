@@ -1,4 +1,2 @@
 /build/
-/dist/
-/cwrap
-/cwrap-tsan
+/CMakeUserPresets.json

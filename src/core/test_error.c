@@ -85,7 +85,7 @@ static void test_report_error_marks_only_when_marker_fits(void) {
 }
 
 // `error_report` accepts a `NULL` buffer with a zero length and writes nothing. That is what call
-// sites that want no message pass. Every `fs_write_file(..., NULL, 0)` fixture write in `tests/`
+// sites that want no message pass. Every `fs_write_file(..., NULL, 0)` unit-test fixture write
 // reaches this on a failure. `vsnprintf` tolerates the pair by contract. What needs pinning is the
 // truncation marker: the `err_len >= sizeof(TRUNCATION_MARKER)` guard is the only thing between an
 // over-long message and a `memcpy` through a null pointer. Nothing here can observe that directly.

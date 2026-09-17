@@ -56,30 +56,11 @@ void* memcpy(void* dest, const void* src, size_t n) {
 > [!warning]
 > I used LLMs extensively to create this project, mostly Claude Opus 4.8 and 5.
 
-## Prerequisites
+## Installation
 
-- POSIX-like system with `make` and a C17 compiler such as Clang or GCC.
-- Optional quality tools: `clang-format`, `clang-tidy`, `cppcheck`.
+Download a prebuilt binary from the [Releases](https://github.com/unindented/cwrap-c17/releases) page, or [build from source](#contributing).
 
-Vendored dependencies are included under `vendor/`:
-
-- [`copt`](https://github.com/fardaniqbal/copt): Command line option parsing.
-- [`acutest`](https://github.com/mity/acutest): Tests.
-
-## Building
-
-- `make` or `make debug`: Build with ASan/UBSan and fatal warnings.
-- `make release`: Build an optimized binary with fatal warnings.
-- `make tsan`: Build a TSan binary as `cwrap-tsan`.
-- `make test-debug`: Build and run debug unit tests.
-- `make golden-debug`: Rewrap every fixture and diff its debug golden output.
-- `make idempotent-debug`: Check fixtures, expected outputs, and source files for fixed-point wrapping at several widths.
-- `make format`: Format `src/` and `tests/`.
-- `make lint`: Run linters.
-- `make ci`: Run linters, the release build, unit tests, the golden diff, and the idempotence check.
-- `make clean`: Remove build outputs.
-
-## Running
+## Usage
 
 `cwrap` accepts one or more input files:
 
@@ -97,3 +78,178 @@ Run these commands for help:
 
 - `cwrap --version` (or `-V`): Print the version.
 - `cwrap --help` (or `-h`): Print usage and the available options.
+
+## Contributing
+
+### Prerequisites
+
+- POSIX-like system with CMake 3.25 or later and a C17 compiler such as Clang or GCC.
+- Optional build tools: `ninja` for the multi-config portability check.
+- Optional quality tools: `clang-format`, `clang-tidy`, `cppcheck`.
+
+Vendored dependencies are included under `vendor/`:
+
+- [`copt`](https://github.com/fardaniqbal/copt): Command line option parsing.
+- [`acutest`](https://github.com/mity/acutest): Tests.
+
+### Building
+
+Presets keep every build out of the source tree. The commands below use eight parallel build jobs. Adjust that number for the machine.
+
+#### Debug build
+
+The debug build enables `AddressSanitizer` and `UndefinedBehaviorSanitizer`. It also runs `clang-tidy` and `cppcheck` during compilation when they are available.
+
+```sh
+cmake --preset debug
+cmake --build --preset debug -j 8
+```
+
+The binary is `build/debug/bin/cwrap`.
+
+To run linting after configuring this preset:
+
+```sh
+cmake --build --preset lint
+```
+
+#### TSan build
+
+The TSan build uses the `Debug` configuration, and instruments the build for data races using `ThreadSanitizer`.
+
+```sh
+cmake --preset tsan
+cmake --build --preset tsan -j 8
+```
+
+The binary is `build/tsan/bin/cwrap`.
+
+#### Release build
+
+The release preset uses `RelWithDebInfo`, treats compiler warnings as errors, and does not build the tests. The build-tree binary retains its debug information. Packaging strips the installed copy.
+
+```sh
+cmake --preset release
+cmake --build --preset release -j 8
+```
+
+The binary is `build/release/bin/cwrap`.
+
+#### Multi-config build
+
+The multi-config preset uses the `Ninja Multi-Config` generator. One configured tree can build both configurations:
+
+```sh
+cmake --preset multi
+cmake --build --preset multi-debug -j 8
+cmake --build --preset multi-relwithdebinfo -j 8
+```
+
+The binaries are `build/multi/bin/Debug/cwrap` and `build/multi/bin/RelWithDebInfo/cwrap`.
+
+### Testing
+
+CTest registers the colocated unit test suite and the end-to-end golden and idempotence test suites.
+
+#### Debug tests
+
+```sh
+cmake --preset debug
+cmake --build --preset debug -j 8
+ctest --preset debug -j 8
+```
+
+To select part of the debug suite:
+
+```sh
+ctest --preset debug -L unit -j 8
+ctest --preset debug -L golden -j 8
+ctest --preset debug -L idempotent -j 8
+ctest --preset debug -R rewrite -j 8
+```
+
+#### TSan tests
+
+```sh
+cmake --preset tsan
+cmake --build --preset tsan -j 8
+ctest --preset tsan -j 8
+```
+
+#### Multi-config tests
+
+Each configuration must be named when building and testing:
+
+```sh
+cmake --preset multi
+
+cmake --build --preset multi-debug -j 8
+ctest --preset multi-debug -j 8
+
+cmake --build --preset multi-relwithdebinfo -j 8
+ctest --preset multi-relwithdebinfo -j 8
+```
+
+The `multi-relwithdebinfo` test preset exercises the same CMake configuration used by the release build. The release preset itself does not build tests.
+
+#### CI workflows
+
+Workflow presets run the complete configure, build, and test sequences used by CI:
+
+- `cmake --workflow --preset ci-debug`: `Debug` build, linting, and all ASan/UBSan tests.
+- `cmake --workflow --preset ci-tsan`: TSan build, and all tests.
+- `cmake --workflow --preset ci-release`: `Release` build.
+- `cmake --workflow --preset ci-multi`: `Debug` and `RelWithDebInfo` builds and tests under the `Ninja Multi-Config` generator.
+
+See [BUILD.md](BUILD.md) for the target graph and the reasons behind these configurations.
+
+### Packaging
+
+Only release configurations have package presets. There is intentionally no debug package.
+
+#### Native release package
+
+```sh
+cmake --preset release
+cmake --build --preset release -j 8
+cpack --preset release
+```
+
+The stripped archive is written to `build/release/`.
+
+#### x86-64 Linux `musl` package
+
+This cross-build requires Zig 0.16 and `llvm-strip`.
+
+```sh
+cmake --preset release-linux-x86_64
+cmake --build --preset release-linux-x86_64 -j 8
+cpack --preset release-linux-x86_64
+```
+
+The archive is `build/release-linux-x86_64/cwrap-<version>-x86_64-linux-musl.tar.gz`.
+
+#### AArch64 Linux `musl` package
+
+This cross-build also requires Zig 0.16 and `llvm-strip`.
+
+```sh
+cmake --preset release-linux-aarch64
+cmake --build --preset release-linux-aarch64 -j 8
+cpack --preset release-linux-aarch64
+```
+
+The archive is `build/release-linux-aarch64/cwrap-<version>-aarch64-linux-musl.tar.gz`.
+
+#### Source package
+
+A source package needs configuration but does not need a compiled binary:
+
+```sh
+cmake --preset release
+cpack --config build/release/CPackSourceConfig.cmake
+```
+
+The archive is `build/release/cwrap-<version>-source.tar.gz`. It excludes build products and private workspace metadata.
+
+Every archive version comes from `project(VERSION)` in `CMakeLists.txt`. A release commit must be tagged with the matching `vMAJOR.MINOR.PATCH`.

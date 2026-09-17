@@ -9,13 +9,8 @@
 #define COPT_IMPL
 #include <copt.h>
 
+#include "app/cwrap_version.h"
 #include "core/parse.h"
-
-// The build normally injects this from the release tag. The fallback keeps a bare `cc` invocation
-// of this file compiling.
-#ifndef CWRAP_VERSION
-#define CWRAP_VERSION "0.0.0-dev"
-#endif
 
 /**
  * @brief Reports whether a parse error has already been recorded.
@@ -165,7 +160,7 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
 }
 
 int cli_print_version(FILE* stream) {
-  fprintf(stream, "cwrap %s\n", CWRAP_VERSION);
+  fprintf(stream, "cwrap %s\n", cwrap_version_string());
   return flush_stream(stream);
 }
 
