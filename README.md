@@ -113,17 +113,6 @@ To run linting after configuring this preset:
 cmake --build --preset lint
 ```
 
-#### TSan build
-
-The TSan build uses the `Debug` configuration, and instruments the build for data races using `ThreadSanitizer`.
-
-```sh
-cmake --preset tsan
-cmake --build --preset tsan -j 8
-```
-
-The binary is `build/tsan/bin/cwrap`.
-
 #### Release build
 
 The release preset uses `RelWithDebInfo`, treats compiler warnings as errors, and does not build the tests. The build-tree binary retains its debug information. Packaging strips the installed copy.
@@ -168,14 +157,6 @@ ctest --preset debug -L idempotent -j 8
 ctest --preset debug -R rewrite -j 8
 ```
 
-#### TSan tests
-
-```sh
-cmake --preset tsan
-cmake --build --preset tsan -j 8
-ctest --preset tsan -j 8
-```
-
 #### Multi-config tests
 
 Each configuration must be named when building and testing:
@@ -197,7 +178,6 @@ The `multi-relwithdebinfo` test preset exercises the same CMake configuration us
 Workflow presets run the complete configure, build, and test sequences used by CI:
 
 - `cmake --workflow --preset ci-debug`: `Debug` build, linting, and all ASan/UBSan tests.
-- `cmake --workflow --preset ci-tsan`: TSan build, and all tests.
 - `cmake --workflow --preset ci-release`: `Release` build.
 - `cmake --workflow --preset ci-multi`: `Debug` and `RelWithDebInfo` builds and tests under the `Ninja Multi-Config` generator.
 

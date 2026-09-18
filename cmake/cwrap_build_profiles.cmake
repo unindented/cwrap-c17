@@ -46,7 +46,7 @@ set(CWRAP_SANITIZER
     "none"
     CACHE STRING "Sanitizer to instrument the build with"
 )
-set_property(CACHE CWRAP_SANITIZER PROPERTY STRINGS none address thread)
+set_property(CACHE CWRAP_SANITIZER PROPERTY STRINGS none address)
 
 if(CWRAP_SANITIZER STREQUAL "none")
   set(cwrap_sanitizer_flags "")
@@ -54,10 +54,8 @@ elseif(CWRAP_SANITIZER STREQUAL "address")
   set(cwrap_sanitizer_flags -fsanitize=address,undefined -fno-sanitize-recover=all
                             -fno-omit-frame-pointer
   )
-elseif(CWRAP_SANITIZER STREQUAL "thread")
-  set(cwrap_sanitizer_flags -fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer)
 else()
-  message(FATAL_ERROR "CWRAP_SANITIZER must be one of none, address, thread; got '${CWRAP_SANITIZER}'")
+  message(FATAL_ERROR "CWRAP_SANITIZER must be one of none, address; got '${CWRAP_SANITIZER}'")
 endif()
 
 foreach(role IN ITEMS cwrap_build_project cwrap_build_tests)

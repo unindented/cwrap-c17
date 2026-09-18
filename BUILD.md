@@ -67,7 +67,7 @@ Presets use `CMAKE_COMPILE_WARNING_AS_ERROR` to treat warnings as errors. The pr
 
 Generator expressions select configuration options at build time. The same rules work with single-config and multi-config generators.
 
-`CWRAP_SANITIZER` accepts `none`, `address`, or `thread`. It adds sanitizer options to standard CMake configurations. It does not create custom build types.
+`CWRAP_SANITIZER` accepts `none` or `address`. The `address` option enables AddressSanitizer and UndefinedBehaviorSanitizer. It adds sanitizer options to standard CMake configurations. It does not create custom build types.
 
 ## Linting and formatting
 
