@@ -8,7 +8,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET
 
 project(
   cwrap
-  VERSION 0.1.1
+  VERSION 0.2.0
   DESCRIPTION "A small C comment formatter written in C17"
   HOMEPAGE_URL "https://github.com/unindented/cwrap-c17"
   LANGUAGES C
