@@ -140,8 +140,26 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
     options->path_count = argc - positional_index;
   }
 
-  // Version wins over everything. Help then beats a genuine parse error. The parser rejects a bare
-  // invocation with no input once no informational flag applies.
+  int stdin_path_count = 0;
+  for (int i = 0; i < options->path_count; i++) {
+    if (strcmp(options->paths[i], "-") == 0) {
+      stdin_path_count++;
+    }
+  }
+  if (options->path_count == 0) {
+    options->is_stdin = true;
+  } else if (stdin_path_count > 1) {
+    record_error(options, "standard input may be specified only once");
+  } else if (stdin_path_count == 1 && options->path_count > 1) {
+    record_error(options, "standard input cannot be combined with file inputs");
+  } else if (stdin_path_count == 1) {
+    // Normalize explicit `-` to the same representation as implicit standard input.
+    options->paths = NULL;
+    options->path_count = 0;
+    options->is_stdin = true;
+  }
+
+  // Version wins over everything. Help then beats a genuine parse error.
   if (has_version || has_help) {
     // An informational action replaces any diagnostic recorded above, so drop it rather than hand
     // back a message that does not describe the outcome. `error_message` is then non-empty exactly
@@ -153,8 +171,8 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
   } else if (options->is_check && options->is_in_place) {
     record_error(options, "options '--check' and '--in-place' cannot be combined");
     options->action = CLI_ACTION_ERROR;
-  } else if (options->path_count == 0) {
-    record_error(options, "no input file specified");
+  } else if (options->is_stdin && options->is_in_place) {
+    record_error(options, "option '--in-place' cannot be used with standard input");
     options->action = CLI_ACTION_ERROR;
   }
 }
@@ -169,12 +187,14 @@ int cli_print_usage(FILE* stream, const char* program_name) {
           "Rewrap C comments to a wrapping column.\n"
           "\n"
           "USAGE:\n"
-          "    %s [options] <file>...\n"
+          "    %s [options] [<file>...]\n"
+          "\n"
+          "If no file is given, or the file is '-', read standard input.\n"
           "\n"
           "OPTIONS:\n"
           "    -w, --width N   Wrap comments at column N (default: %d)\n"
           "    -i, --in-place  Rewrite files in place\n"
-          "    -c, --check     Exit non-zero if any file would change\n"
+          "    -c, --check     Exit non-zero if any input would change\n"
           "    -h, --help      Print this help and exit\n"
           "    -V, --version   Print version information and exit\n",
           program_name, WRAP_COLUMN_DEFAULT);

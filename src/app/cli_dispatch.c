@@ -41,8 +41,6 @@ enum ExitCode cli_dispatch(int argc, char** argv) {
       return exit_code_from_print(cli_print_version(stdout), "version");
     case CLI_ACTION_HELP: {
       // `CLI_ACTION_HELP` means `cli_parse` saw `--help`, so `argc >= 2` and `argv[0]` is a string.
-      // The `argc == 0` case that ISO C permits never arrives here. With no arguments no input path
-      // resolves, and `cli_parse` returns `CLI_ACTION_ERROR` instead.
       const char* program_name = argv[0];
       return exit_code_from_print(cli_print_usage(stdout, program_name), "usage");
     }
@@ -54,6 +52,7 @@ enum ExitCode cli_dispatch(int argc, char** argv) {
           .width = options.width,
           .paths = options.paths,
           .path_count = options.path_count,
+          .is_stdin = options.is_stdin,
           .is_in_place = options.is_in_place,
           .is_check = options.is_check,
       };

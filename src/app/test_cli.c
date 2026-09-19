@@ -39,6 +39,26 @@ static void test_file_argument_runs_at_default_width(void) {
   TEST_CHECK(strcmp(options.paths[0], "src/domain/lex.c") == 0);
 }
 
+// A bare invocation selects implicit standard input.
+static void test_no_args_select_stdin(void) {
+  char* argv[] = {"cwrap", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.is_stdin);
+  TEST_CHECK(options.paths == NULL);
+  TEST_CHECK(options.path_count == 0);
+}
+
+// A single `-` selects the same standard-input mode and is removed from the path array.
+static void test_dash_selects_stdin(void) {
+  char* argv[] = {"cwrap", "-", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.is_stdin);
+  TEST_CHECK(options.paths == NULL);
+  TEST_CHECK(options.path_count == 0);
+}
+
 // `--width` stores a parsed positive column.
 static void test_width_long_flag(void) {
   char* argv[] = {"cwrap", "--width", "40", "a.c", NULL};
@@ -250,12 +270,33 @@ static void test_check_and_in_place_conflict(void) {
       strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
 }
 
-// A bare invocation with no input is rejected with the usage diagnostic.
-static void test_no_args_rejected(void) {
-  char* argv[] = {"cwrap", NULL};
-  struct CliOptions options = parse(argv);
+// Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
+static void test_stdin_cannot_be_combined(void) {
+  char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
+  struct CliOptions options = parse(mixed_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "no input file specified") == 0);
+  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
+             0);
+
+  char* repeated_argv[] = {"cwrap", "-", "-", NULL};
+  options = parse(repeated_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
+}
+
+// In-place output needs a path and is rejected for implicit and explicit standard input.
+static void test_in_place_rejects_stdin(void) {
+  char* implicit_argv[] = {"cwrap", "--in-place", NULL};
+  struct CliOptions options = parse(implicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+
+  char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
+  options = parse(explicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
 }
 
 // `--version` resolves to the version action without requiring an input.
@@ -423,7 +464,9 @@ static void test_print_usage_names_program(void) {
   TEST_CHECK(cli_print_usage(stream, "/opt/bin/mycwrap") == 0);
   const int rc = fclose(stream);
   TEST_ASSERT(rc == 0);
-  TEST_CHECK(strstr(buf, "    /opt/bin/mycwrap [options] <file>...\n") != NULL);
+  TEST_CHECK(strstr(buf, "    /opt/bin/mycwrap [options] [<file>...]\n") != NULL);
+  TEST_CHECK(strstr(buf, "If no file is given, or the file is '-', read standard input.\n") !=
+             NULL);
   TEST_CHECK(strstr(buf, "-w, --width N") != NULL);
   free(buf);
 }
@@ -445,6 +488,8 @@ static void test_print_usage_reports_write_failure(void) {
 
 TEST_LIST = {
     {"file argument runs at default width", test_file_argument_runs_at_default_width},
+    {"no args select stdin", test_no_args_select_stdin},
+    {"dash selects stdin", test_dash_selects_stdin},
     {"width long flag", test_width_long_flag},
     {"width short flag", test_width_short_flag},
     {"width short flag attached value", test_width_short_flag_attached_value},
@@ -465,7 +510,8 @@ TEST_LIST = {
     {"attached value rejected on valueless short flags",
      test_attached_value_rejected_on_valueless_short_flags},
     {"check and in place conflict", test_check_and_in_place_conflict},
-    {"no args rejected", test_no_args_rejected},
+    {"stdin cannot be combined", test_stdin_cannot_be_combined},
+    {"in place rejects stdin", test_in_place_rejects_stdin},
     {"version long flag", test_version_long_flag},
     {"help long flag", test_help_long_flag},
     {"version short flag", test_version_short_flag},

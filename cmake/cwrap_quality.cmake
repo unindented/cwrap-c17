@@ -16,6 +16,9 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/app/test_cli_dispatch.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cmd_wrap.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_exit_code.c"
+    "${PROJECT_SOURCE_DIR}/src/app/test_wrap_input.c"
+    "${PROJECT_SOURCE_DIR}/src/app/wrap_input.c"
+    "${PROJECT_SOURCE_DIR}/src/app/wrap_input.h"
     "${PROJECT_SOURCE_DIR}/src/core/ascii.h"
     "${PROJECT_SOURCE_DIR}/src/core/error.c"
     "${PROJECT_SOURCE_DIR}/src/core/error.h"
@@ -42,13 +45,13 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/domain/test_fill.c"
     "${PROJECT_SOURCE_DIR}/src/domain/test_lex.c"
     "${PROJECT_SOURCE_DIR}/src/domain/test_rewrite.c"
-    "${PROJECT_SOURCE_DIR}/src/domain/test_wrap_file.c"
     "${PROJECT_SOURCE_DIR}/src/domain/unicode_width_data.h"
-    "${PROJECT_SOURCE_DIR}/src/domain/wrap_file.c"
-    "${PROJECT_SOURCE_DIR}/src/domain/wrap_file.h"
     "${PROJECT_SOURCE_DIR}/src/runtime/fs.c"
     "${PROJECT_SOURCE_DIR}/src/runtime/fs.h"
+    "${PROJECT_SOURCE_DIR}/src/runtime/stream.c"
+    "${PROJECT_SOURCE_DIR}/src/runtime/stream.h"
     "${PROJECT_SOURCE_DIR}/src/runtime/test_fs.c"
+    "${PROJECT_SOURCE_DIR}/src/runtime/test_stream.c"
 )
 set(cwrap_configured_c_source "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.c.in")
 
@@ -87,7 +90,7 @@ function(cwrap_enable_test_analysis target)
     set_property(
       TARGET ${target}
       PROPERTY C_CPPCHECK
-               "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--quiet"
+               "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--inline-suppr;--quiet"
     )
   endif()
 endfunction()

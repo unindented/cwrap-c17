@@ -1,6 +1,6 @@
 # Architecture
 
-`cwrap` is a small C17 CLI that rewraps C comments. It reads source files, refills wrapable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
+`cwrap` is a small C17 CLI that rewraps C comments. It reads source files or standard input, refills wrapable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
 
 ## Layout
 
@@ -29,10 +29,10 @@ A module can skip layers. Modules in the same directory can depend on each other
 
 The command has two layers:
 
-- `cmd_wrap_run` is the command boundary. It iterates through the input paths and delegates each file to `wrap_file_process` ([src/domain/wrap_file.h](src/domain/wrap_file.h)). Check mode continues after both changed and error results so it can report every input that would change and every processing failure. The boundary flushes default-mode output and prints any collected diagnostic to `stderr` exactly once.
-- `wrap_file_process` owns the resources for one input and runs its read, rewrite, and emit steps. It returns a `WrapFileResult` that distinguishes success, a check-mode change, and an operational error. It writes rewritten source to `stdout` in the default mode, writes only a changed source in in-place mode, and writes nothing in check mode.
+- `cmd_wrap_run` is the command boundary. It selects standard input or iterates through the input paths and delegates each input to [wrap_input](src/app/wrap_input.h). Check mode continues after both changed and error results so it can report every file that would change and every processing failure. The boundary flushes default-mode output and prints any collected diagnostic to `stderr` exactly once.
+- `wrap_input` owns the resources for one input and runs its read, rewrite, and emit steps. Its file and stream entry points share the same in-memory rewrite path. `WrapInputResult` distinguishes success, a check-mode change, and an operational error. The module writes rewritten source to `stdout` in the default mode, writes only a changed file in in-place mode, and writes nothing in check mode.
 
-No domain or runtime module writes a failure diagnostic directly to `stderr`. Each fallible operation returns errors to its caller through a fixed `(char* err, size_t err_len)` or `(char* reason, size_t reason_len)` pair. The command appends per-file failures to a growable `StringBuffer`.
+No domain or runtime module writes a failure diagnostic directly to `stderr`. Each fallible operation returns errors to its caller through a fixed `(char* err, size_t err_len)` or `(char* reason, size_t reason_len)` pair. The command appends per-input failures to a growable `StringBuffer`.
 
 ## Wrap pipeline
 
@@ -56,11 +56,15 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 - [fill](src/domain/fill.h): Greedily fills prose paragraphs while preserving samples, lists, tags, and hanging indentation.
 - [doxygen](src/domain/doxygen.h): Aligns `@param` descriptions and their continuation lines.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer and splices rewritten comments between unchanged source ranges.
-- [wrap_file](src/domain/wrap_file.h): Reads, rewrites, and emits one source according to the selected output mode.
+
+### Application (`src/app`)
+
+- [wrap_input](src/app/wrap_input.h): Coordinates file or stream input, source rewriting, and the selected output mode.
 
 ### Runtime (`src/runtime`)
 
 - [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes close a sibling temporary file before renaming it over the destination, preserving an existing file on failure.
+- [stream](src/runtime/stream.h): Buffers a potentially non-seekable, `NUL`-free stream through EOF without closing it.
 
 ### Core (`src/core`)
 
@@ -74,9 +78,9 @@ Rewrapping is idempotent: a second pass over the output of a first must change n
 
 ## Cross-cutting conventions
 
-- **Ownership**: Arenas own the temporary allocations made while rewriting one source. File reads return a separate buffer that the caller frees. A `StringBuffer` owns its growable allocation until it is freed or `string_buffer_steal` transfers that allocation to the caller.
-- **Text representation**: A file read produces a terminated, `NUL`-free buffer plus its byte length. The lexer and wrapping pipeline use borrowed slices into that buffer. The embedded-`NUL` check prevents silent truncation when the buffer is used as a C string.
+- **Ownership**: Arenas own the temporary allocations made while rewriting one source. File and stream reads return a separate buffer that the caller frees. A `StringBuffer` owns its growable allocation until it is freed or `string_buffer_steal` transfers that allocation to the caller.
+- **Text representation**: An input read produces a terminated, `NUL`-free buffer plus its byte length. The lexer and wrapping pipeline use borrowed slices into that buffer. The embedded-`NUL` check prevents silent truncation when the buffer is used as a C string.
 - **Line endings**: Each comment block records whether its source uses LF or CRLF. Refilled lines use that same convention, while untouched source bytes pass through unchanged.
-- **Return values**: A producer returns a pointer or `NULL`. An action returns `0` or `-1`. A predicate returns `bool`. An operation with a third, non-error outcome returns an enum; `wrap_file_process` uses `WrapFileResult` to keep a check-mode change distinct from an operational error.
+- **Return values**: A producer returns a pointer or `NULL`. An action returns `0` or `-1`. A predicate returns `bool`. An operation with a third, non-error outcome returns an enum; `wrap_input` uses `WrapInputResult` to keep a check-mode change distinct from an operational error.
 - **Diagnostic buffers**: A fallible action can take a final `(char* err, size_t err_len)` pair. `error_report` fills this buffer and marks truncated text with `...`. Filesystem actions use a `(char* reason, size_t reason_len)` pair instead. This pair contains a reason fragment. The caller adds the operation and file information.
 - **Diagnostic text**: First-party diagnostics use lowercase prose and name the failed operation first. They use single quotes for literal names and values. External messages keep their original capitalization and punctuation. An unbounded value follows the cause, so truncation removes the value instead of the reason.

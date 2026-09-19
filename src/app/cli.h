@@ -21,7 +21,7 @@ enum CliAction {
   /** Print usage help and exit successfully. Wins over parse errors but not version. */
   CLI_ACTION_HELP,
 
-  /** Rewrap the input files. */
+  /** Rewrap the selected input. */
   CLI_ACTION_RUN,
 
   /** Reject the command line. `error_message` explains the failure. */
@@ -36,13 +36,16 @@ struct CliOptions {
   /** Wrapping column. Defaults to `WRAP_COLUMN_DEFAULT` when `--width` is omitted. */
   size_t width;
 
+  /** Whether input comes from `stdin` instead of from `paths`. */
+  bool is_stdin;
+
   /**
-   * Input paths, pointing into the reordered `argv` passed to `cli_parse`. Every item is
-   * non-`NULL`. Valid until the caller returns from `cli_dispatch`. `NULL` when `path_count` is 0.
+   * File input paths, pointing into the reordered `argv` passed to `cli_parse`. Every item is
+   * non-`NULL`. Valid until the caller returns from `cli_dispatch`. `NULL` in standard-input mode.
    */
   char** paths;
 
-  /** Number of paths in `paths`. Never negative. */
+  /** Number of paths in `paths`. Zero in standard-input mode and positive otherwise. */
   int path_count;
 
   /** Whether to rewrite each input file in place. */

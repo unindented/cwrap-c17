@@ -62,9 +62,11 @@ Download a prebuilt binary from the [Releases](https://github.com/unindented/cwr
 
 ## Usage
 
-`cwrap` accepts one or more input files:
+`cwrap` accepts files or standard input:
 
 - `cwrap [options] <file>...`: Rewrap comments in each input file.
+- `cat foo.c | cwrap [options]`: Read from standard input when no file is given.
+- `cwrap [options] - < foo.c`: Use `-` to select standard input explicitly.
 
 These options control the wrapping and output mode:
 
@@ -72,7 +74,11 @@ These options control the wrapping and output mode:
 - `-i, --in-place`: Rewrite changed input files in place.
 - `-c, --check`: Write no files and exit non-zero if any input would change.
 
-(Options `--check` and `--in-place` are mutually exclusive.)
+These combinations are invalid:
+
+- Standard input with file inputs.
+- Standard input with `--in-place`.
+- `--check` with `--in-place`.
 
 Run these commands for help:
 
