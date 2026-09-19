@@ -1,5 +1,5 @@
-#ifndef CWRAP_STRING_BUFFER_H
-#define CWRAP_STRING_BUFFER_H
+#ifndef SHARED_STRING_BUFFER_H
+#define SHARED_STRING_BUFFER_H
 
 #include <stddef.h>
 

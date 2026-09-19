@@ -1,5 +1,5 @@
-#ifndef CWRAP_ARENA_H
-#define CWRAP_ARENA_H
+#ifndef SHARED_ARENA_H
+#define SHARED_ARENA_H
 
 #include <stddef.h>
 

@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "domain/comment.h"
 #include "domain/fill.h"
+#include "shared/arena.h"
 
 // A short pair of prose lines is joined when both fit on one line.
 static void test_joins_short_prose_lines(void) {

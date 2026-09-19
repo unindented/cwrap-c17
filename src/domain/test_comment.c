@@ -3,10 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "core/arena.h"
-#include "core/string_buffer.h"
 #include "domain/comment.h"
 #include "domain/lex.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 /**
  * @brief Groups source text into wrapable comment blocks.

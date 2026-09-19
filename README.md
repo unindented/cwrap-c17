@@ -89,6 +89,7 @@ Run these commands for help:
 
 Vendored dependencies are included under `vendor/`:
 
+- [`sharedstuff`](https://github.com/unindented/sharedstuff-c17): Arena allocation and string buffers.
 - [`copt`](https://github.com/fardaniqbal/copt): Command line option parsing.
 - [`acutest`](https://github.com/mity/acutest): Tests.
 
@@ -187,7 +188,7 @@ To run the same Linux workflows from a machine with Podman, build the pinned Ubu
 podman build --tag cwrap-linux-ci --file Containerfile .
 ```
 
-The image contains a snapshot of the source tree, so container builds do not mix Linux products with the host's `build/` directory. Run each workflow preset in a fresh container:
+Docker accepts the same command with `docker` in place of `podman`. The image contains a snapshot of the source tree, including vendored dependencies, so container builds do not mix Linux products with the host's `build/` directory. Run each workflow preset in a fresh container:
 
 ```sh
 podman run --rm cwrap-linux-ci ci-debug

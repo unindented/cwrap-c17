@@ -5,12 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/atom.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 /**
  * @brief Reports whether `kind` may join a wrapable paragraph.

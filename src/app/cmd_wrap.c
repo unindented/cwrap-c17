@@ -4,8 +4,8 @@
 #include <stdio.h>
 
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/wrap_file.h"
+#include "shared/string_buffer.h"
 
 enum ExitCode cmd_wrap_run(const struct WrapOptions* options) {
   struct StringBuffer error_buffer;

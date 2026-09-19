@@ -3,12 +3,12 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "core/ascii.h"
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/doxygen.h"
 #include "domain/lex.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 /** Display columns per tab stop when measuring source indentation. */
 enum { TAB_WIDTH = 8 };

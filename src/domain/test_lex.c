@@ -2,8 +2,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "domain/lex.h"
+#include "shared/arena.h"
 
 /**
  * @brief Lexes source text into comment spans.

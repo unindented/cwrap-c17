@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "core/error.h"
+#include "shared/arena.h"
 
 /** Lexer states. A slash may start a comment; a quote or backslash in code must not. */
 enum LexState {

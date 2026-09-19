@@ -1,12 +1,12 @@
 #include "domain/rewrite.h"
 
-#include "core/arena.h"
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
 #include "domain/fill.h"
 #include "domain/lex.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 int rewrite_source(struct StringBuffer* buffer,
                    const char* source,

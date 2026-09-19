@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "core/ascii.h"
+#include "shared/arena.h"
 
 #include "domain/unicode_width_data.h"
 

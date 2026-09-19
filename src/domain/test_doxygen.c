@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
+#include "shared/arena.h"
 
 // `@param` descriptions share a column taken from the longest name.
 static void test_aligns_parameter_descriptions(void) {

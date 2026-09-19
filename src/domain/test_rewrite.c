@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "core/arena.h"
-#include "core/string_buffer.h"
 #include "domain/rewrite.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 /**
  * @brief Rewrites source text at a requested width.

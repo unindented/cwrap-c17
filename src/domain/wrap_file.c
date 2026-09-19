@@ -6,11 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/rewrite.h"
 #include "runtime/fs.h"
+#include "shared/arena.h"
+#include "shared/string_buffer.h"
 
 /**
  * @brief Emits one rewritten source according to the selected output mode.

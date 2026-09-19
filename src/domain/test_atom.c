@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "core/arena.h"
 #include "domain/atom.h"
+#include "shared/arena.h"
 
 // Display width counts East Asian wide code points as two columns.
 static void test_column_width_east_asian_and_latin(void) {

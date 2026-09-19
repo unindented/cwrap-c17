@@ -65,10 +65,8 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 ### Core (`src/core`)
 
 - [ascii](src/core/ascii.h): Locale-independent ASCII byte classification.
-- [arena](src/core/arena.h): Bump allocator and primary ownership tool.
 - [error](src/core/error.h): Uniform diagnostic reporting for fallible actions.
 - [parse](src/core/parse.h): Parsing of terminated text into scalar values.
-- [string_buffer](src/core/string_buffer.h): Growable string buffer for accumulating output.
 
 ## Fixed-point invariant
 

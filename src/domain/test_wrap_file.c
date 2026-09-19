@@ -10,9 +10,9 @@
 #include <unistd.h>
 
 #include "core/error.h"
-#include "core/string_buffer.h"
 #include "domain/wrap_file.h"
 #include "runtime/fs.h"
+#include "shared/string_buffer.h"
 
 /**
  * @brief Creates a temporary source fixture.

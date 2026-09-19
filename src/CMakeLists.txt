@@ -14,6 +14,7 @@ add_subdirectory(runtime)
 
 target_link_libraries(
   cwrap_app
+  PUBLIC cwrap_vendor_sharedstuff
   PRIVATE cwrap_build_project cwrap_vendor_copt
 )
 
