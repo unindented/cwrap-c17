@@ -8,10 +8,9 @@
  * Size in bytes of a diagnostic message buffer, including the `NUL` terminator.
  *
  * Sizing every `err` buffer in the program for a worst-case path costs more than that case is
- * worth, so a pathological path may truncate. The cause must never truncate, which is why every
- * composed message leads with the failed operation and its cause and puts any unbounded value last.
- * Do not raise this size to make a path fit, and do not reverse that ordering to make the message
- * read better.
+ * worth, so a pathological path may truncate. Every composed message leads with the failed
+ * operation and cause so they cannot truncate. Any unbounded value comes last. Do not raise this
+ * size to make a path fit, and do not reverse that ordering to make the message read better.
  */
 enum { ERROR_MESSAGE_SIZE = 512 };
 

@@ -10,10 +10,11 @@
 // alphabet would silently rewrap comments differently. These answer for ASCII only, whatever the
 // locale. Every `<ctype.h>` function also takes an `int` whose value must be representable as an
 // `unsigned char` or equal `EOF`. If plain `char` is signed, passing a byte above 0x7F causes
-// undefined behavior. The byte becomes a negative value outside the permitted range. Taking
-// `unsigned char` moves that conversion into the parameter, where it is value-preserving, so a
-// caller scanning with a `const unsigned char*` or an explicit `(unsigned char)` cast cannot get it
-// wrong.
+// undefined behavior. The byte becomes a negative value that is outside the permitted range. Plain
+// `char` is signed on two of the three release targets, x86-64 Linux and arm64 macOS. Arm64 Linux
+// has it unsigned. Taking `unsigned char` moves that conversion into the parameter, where it is
+// value-preserving, so a caller scanning with a `const unsigned char*` or an explicit
+// `(unsigned char)` cast cannot get it wrong.
 //
 // These are header-only and `static inline`, because every body is one or two comparisons.
 
