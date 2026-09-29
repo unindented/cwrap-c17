@@ -123,8 +123,11 @@ static void test_in_place_short_flag(void) {
   TEST_CHECK(options.is_in_place);
 }
 
-// An `=`-joined value inside a short cluster reaches the flag it is attached to and leaves the
-// valueless flag ahead of it alone.
+// An `=`-joined value inside a short cluster reaches the one flag it is attached to, leaving the
+// valueless flag ahead of it alone. This is the case the rejection in
+// `test_attached_value_rejected_on_valueless_short_flags` must not claim. Both flags live in one
+// `argv` element, so a check that only asked whether that element contains an `=` would reject
+// `--check` here for a value belonging to `--width`.
 static void test_width_short_flag_in_cluster_equals_value(void) {
   char* argv[] = {"cwrap", "-cw=40", "a.c", NULL};
   struct CliOptions options = parse(argv);
@@ -133,7 +136,8 @@ static void test_width_short_flag_in_cluster_equals_value(void) {
   TEST_CHECK(options.width == 40);
 }
 
-// A valueless option before the file and a width option after it are both applied in one parse.
+// A valueless option before the file and a width option after it are both applied in one parse. The
+// all-options-after-the-file placement is `test_options_after_file`.
 static void test_mixed_flag_order(void) {
   char* argv[] = {"cwrap", "--check", "a.c", "--width", "40", NULL};
   struct CliOptions options = parse(argv);
@@ -144,7 +148,11 @@ static void test_mixed_flag_order(void) {
   TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
 }
 
-// `argv[0]` survives a parse that permutes the rest of the vector.
+// `argv[0]` survives a parse that permutes the rest of the vector, which is the clause
+// `cli_dispatch` depends on. It reads `argv[0]` after `cli_parse` returns to name the program in
+// the usage text. This command line reorders because the option follows the positional. The test
+// fails if a copt update rotates the complete vector. It also fails if `copt_init` stops preserving
+// `argv[0]`.
 static void test_program_name_survives_permutation(void) {
   char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
   char* program_name = argv[0];
@@ -204,12 +212,27 @@ static void test_version_flag_wins_over_help(void) {
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
 }
 
-// A genuine informational action clears an earlier diagnostic that no longer describes the outcome.
+// An informational flag takes priority over a parse error, and discards the diagnostic that error
+// recorded, so `error_message` never describes an outcome other than the one selected. The cluster
+// case is here because it looks like an exception and is not. `-Vx` is `-V` alongside the unknown
+// option `-x`, the same shape as the two spelled-out cases above, so it prints the version rather
+// than reporting the `-x`. A value glued to the flag itself is the shape that does not survive this
+// precedence, per `test_attached_value_rejected_on_valueless_short_flags`.
 static void test_informational_flag_clears_diagnostic(void) {
-  char* argv[] = {"cwrap", "--bogus", "--help", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_HELP);
-  TEST_CHECK(options.error_message[0] == '\0');
+  char* help_argv[] = {"cwrap", "--frobnicate", "--help", NULL};
+  struct CliOptions help_options = parse(help_argv);
+  TEST_CHECK(help_options.action == CLI_ACTION_HELP);
+  TEST_CHECK(help_options.error_message[0] == '\0');
+
+  char* version_argv[] = {"cwrap", "--frobnicate", "--version", NULL};
+  struct CliOptions version_options = parse(version_argv);
+  TEST_CHECK(version_options.action == CLI_ACTION_VERSION);
+  TEST_CHECK(version_options.error_message[0] == '\0');
+
+  char* cluster_argv[] = {"cwrap", "-Vx", NULL};
+  struct CliOptions cluster_options = parse(cluster_argv);
+  TEST_CHECK(cluster_options.action == CLI_ACTION_VERSION);
+  TEST_CHECK(cluster_options.error_message[0] == '\0');
 }
 
 // `--in-place` and `--check` cannot be combined.
@@ -269,7 +292,8 @@ static void test_zero_width_rejected(void) {
 }
 
 // A negative wrapping column in attached form reaches `parse_size`'s sign rejection, and the
-// diagnostic names the offending value.
+// diagnostic names the offending value. Attached form (`=`) is required so the `-1` is taken as the
+// option's value rather than a separate token.
 static void test_negative_width_rejected(void) {
   char* argv[] = {"cwrap", "--width=-1", "a.c", NULL};
   struct CliOptions options = parse(argv);
@@ -278,8 +302,9 @@ static void test_negative_width_rejected(void) {
              0);
 }
 
-// A wrapping column above the accepted ceiling is rejected, while the value at the ceiling is
-// accepted. Deriving the expected boundary from `WRAP_COLUMN_MAX` keeps the test tied to the limit.
+// A wrapping column above the accepted ceiling is rejected. The value at the ceiling is accepted,
+// so the boundary itself is pinned rather than just the rejection. Deriving the expected boundary
+// from `WRAP_COLUMN_MAX` keeps the test tied to the limit.
 static void test_oversize_width_rejected(void) {
   char too_large[32];
   const int too_large_len =
@@ -302,9 +327,11 @@ static void test_oversize_width_rejected(void) {
   options = parse(accepted_argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.width == WRAP_COLUMN_MAX);
+  TEST_CHECK(options.error_message[0] == '\0');
 }
 
-// `-w` with no following value is rejected and names the short spelling.
+// `-w` with no following value is rejected with a diagnostic that it requires a wrapping column,
+// naming the short spelling.
 static void test_missing_width_short_flag(void) {
   char* argv[] = {"cwrap", "-w", NULL};
   struct CliOptions options = parse(argv);
@@ -312,7 +339,8 @@ static void test_missing_width_short_flag(void) {
   TEST_CHECK(strcmp(options.error_message, "option '-w' requires a wrapping column") == 0);
 }
 
-// `--width` with no following value is rejected and names the long spelling.
+// `--width` with no following value is rejected with a diagnostic that it requires a wrapping
+// column, naming the long spelling.
 static void test_missing_width_long_flag(void) {
   char* argv[] = {"cwrap", "--width", NULL};
   struct CliOptions options = parse(argv);
@@ -320,17 +348,22 @@ static void test_missing_width_long_flag(void) {
   TEST_CHECK(strcmp(options.error_message, "option '--width' requires a wrapping column") == 0);
 }
 
-// Flags that take no value reject an attached value. Informational flags must reject before their
-// precedence clears the diagnostic.
+// A flag that takes no value rejects an attached `=value` and names the complete token. copt
+// matches only the text before `=`. Without this check, it discards the value and enables
+// `--check=0`. The test covers all four flags that take no value. `--version` and `--help` clear
+// `error_message`, so they could otherwise hide this rejection. The
+// `test_width_long_flag_equals_value` test confirms that `--width=N` still works.
 static void test_attached_value_rejected_on_valueless_flags(void) {
   char* check_argv[] = {"cwrap", "--check=0", "a.c", NULL};
   struct CliOptions options = parse(check_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(!options.is_check);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--check=0'") == 0);
 
   char* in_place_argv[] = {"cwrap", "--in-place=0", "a.c", NULL};
   options = parse(in_place_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(!options.is_in_place);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--in-place=0'") == 0);
 
   char* help_argv[] = {"cwrap", "--help=nope", NULL};
@@ -344,16 +377,22 @@ static void test_attached_value_rejected_on_valueless_flags(void) {
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--version=nope'") == 0);
 }
 
-// The short form of each valueless flag rejects an attached value too.
+// The short form of each valueless flag rejects an attached value and names the complete element.
+// copt stops its one-letter comparison at `=`, so `-V=1` matches `V`. Without this check, the short
+// form would print the version while the long form failed. The later `-=` diagnostic cannot catch
+// this error because an informational flag clears `error_message`. The rejection must prevent `-V`
+// from becoming a version request.
 static void test_attached_value_rejected_on_valueless_short_flags(void) {
   char* check_argv[] = {"cwrap", "-c=0", "a.c", NULL};
   struct CliOptions options = parse(check_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(!options.is_check);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-c=0'") == 0);
 
   char* in_place_argv[] = {"cwrap", "-i=0", "a.c", NULL};
   options = parse(in_place_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(!options.is_in_place);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-i=0'") == 0);
 
   char* version_argv[] = {"cwrap", "-V=1", NULL};
@@ -409,7 +448,12 @@ static void test_print_version_writes_version_line(void) {
   free(buf);
 }
 
-// A stream that latched a write error makes the version printer report failure with `errno` set.
+// A stream that latched a write error makes `cli_print_version` report `-1` with `errno` set, which
+// lets `cli_dispatch` name a reason rather than exiting silently. The reason is `EIO` rather than
+// the underlying `EBADF`. A latched error's own `errno` may have been overwritten by the time it is
+// noticed, so the contract substitutes a generic I/O failure instead of relaying a stale value. A
+// read-mode stream is the deterministic way to reach that branch, because the write fails at the
+// `fprintf` while `fflush` itself succeeds.
 static void test_print_version_reports_write_failure(void) {
   FILE* stream = fopen("/dev/null", "r");
   TEST_ASSERT(stream != NULL);
@@ -424,8 +468,11 @@ static void test_print_version_reports_write_failure(void) {
 }
 
 // When `fflush` itself fails, the write's own `errno` survives instead of being replaced by the
-// `EIO` used for an earlier latched error. A pipe with its read end closed reaches that branch,
-// with `SIGPIPE` ignored so the process survives to return.
+// `EIO` the latched-error branch substitutes. That distinction is why `cli_dispatch` reports a
+// reason rather than only an exit code. A closed pipe and a full disk need different responses. The
+// test above reaches the `ferror` branch, where the write already failed at `fprintf` and `fflush`
+// succeeds. This one reaches the other branch. A pipe with its read end closed is the deterministic
+// way there, with `SIGPIPE` ignored so the process survives to return.
 static void test_print_version_reports_flush_failure_errno(void) {
   void (*previous)(int) = signal(SIGPIPE, SIG_IGN);
   int fds[2];
@@ -448,11 +495,17 @@ static void test_print_version_reports_flush_failure_errno(void) {
   (void)signal(SIGPIPE, previous);
 
   TEST_CHECK(rc == -1);
+  // This is `EPIPE`, not the `EIO` substitute. `fflush` observed the failure, so its `errno` is
+  // current and passes through untouched.
   TEST_CHECK(reported == EPIPE);
 }
 
-// The usage printer substitutes the caller's program name into the usage line and includes the
-// command's options.
+// `cli_print_usage` substitutes the caller's program name into the usage line, alongside the option
+// content. The name passed here is deliberately *not* `"cwrap"`. With the real program name the
+// assertion passes just as well against a hard-coded usage line, so it would prove nothing about
+// substitution. `cli_dispatch` passes `argv[0]`, so a user invoking `/usr/local/bin/cwrap --help`
+// has to see that path back. The full help text is prose and is deliberately not asserted whole.
+// The usage line is the part callers copy.
 static void test_print_usage_names_program(void) {
   char* buf = NULL;
   size_t len = 0;
@@ -471,8 +524,8 @@ static void test_print_usage_names_program(void) {
   free(buf);
 }
 
-// The usage printer reports a failed write the same way, so neither informational action can fail
-// without a reason.
+// `cli_print_usage` reports a failed write the same way, so neither informational action can exit
+// non-zero without a reason.
 static void test_print_usage_reports_write_failure(void) {
   FILE* stream = fopen("/dev/null", "r");
   TEST_ASSERT(stream != NULL);
