@@ -409,15 +409,15 @@ static void test_attached_value_rejected_on_valueless_short_flags(void) {
   TEST_CHECK(!options.is_in_place);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-i=0'") == 0);
 
-  char* version_argv[] = {"cwrap", "-V=1", NULL};
-  options = parse(version_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-V=1'") == 0);
-
   char* help_argv[] = {"cwrap", "-h=1", NULL};
   options = parse(help_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-h=1'") == 0);
+
+  char* version_argv[] = {"cwrap", "-V=1", NULL};
+  options = parse(version_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-V=1'") == 0);
 }
 
 // A rejected attached value ends its short cluster, so the letters after the `=` are not read as
