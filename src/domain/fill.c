@@ -185,8 +185,11 @@ int fill_body_lines(struct BodyLineList* lines,
       return error_report(err, err_len, "out of memory");
     }
     const size_t frozen_prefix_len = is_tag_start ? tag_prefix_len(joined, joined_len) : 0;
+    // The closer trails the last body line, so only a paragraph that ends the body makes room for
+    // it.
+    const bool is_closer_reserved = has_trailing_closer && i == lines->count;
     if (append_filled_paragraph(&rebuilt, &rebuilt_capacity, joined, joined_len, frozen_prefix_len,
-                                first_prefix_columns, prefix_columns, width, has_trailing_closer,
+                                first_prefix_columns, prefix_columns, width, is_closer_reserved,
                                 arena, err, err_len) != 0) {
       return -1;
     }

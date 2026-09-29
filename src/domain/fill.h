@@ -16,14 +16,14 @@ struct BodyLineList;
  * `@retval` continues at the shared description column and any other tag under the first word after
  * its keyword. A Doxygen command or list marker inside a paragraph travels with the word before it,
  * so no continuation line reads back as a tag or list item. List items, fenced or indented samples,
- * and decorative lines are left untouched. When `has_trailing_closer` is true, the last line of a
- * paragraph reserves three columns for a trailing closer.
+ * and decorative lines are left untouched. When `has_trailing_closer` is true and a paragraph ends
+ * the body, its last line reserves three columns for the closer that trails it.
  *
  * @param lines                Body lines to refill in place. Must not be `NULL`.
  * @param first_prefix_columns Display columns before the first body line.
  * @param prefix_columns       Display columns occupied by each continuation prefix.
  * @param width                Wrapping column, inclusive.
- * @param has_trailing_closer  Whether to reserve a closer that trails the last line.
+ * @param has_trailing_closer  Whether to reserve a closer that trails the last body line.
  * @param arena                Arena that owns replacement line texts. Must not be `NULL`.
  * @param err                  Receives a diagnostic on failure. May be `NULL` only when `err_len`
  *                             is 0.
