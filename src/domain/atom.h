@@ -44,8 +44,9 @@ size_t atom_column_width(const char* text, size_t text_len);
  * @brief Splits `text` into unbreakable wrap atoms.
  *
  * A backtick span, an uppercase hex-byte run (`E2 80 94`), and a quantity-plus-unit (`264 MB`) stay
- * together. A parenthetical wraps at its spaces, the same as ordinary words. A trailing `.` or `,`,
- * a possessive `'s`, and a hyphenated suffix travel with the atom they follow.
+ * together. An unclosed backtick opens an ordinary word. A parenthetical wraps at its spaces, the
+ * same as ordinary words. A trailing `.` or `,`, a possessive `'s`, and a hyphenated suffix travel
+ * with the atom they follow.
  *
  * @param text      Paragraph payload. Must hold at least `text_len` bytes. May be `NULL` only when
  *                  `text_len` is 0.

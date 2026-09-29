@@ -56,7 +56,8 @@ static bool is_hex(unsigned char c);
  * @param text     Payload bytes. Must not be `NULL`.
  * @param text_len Length of `text`.
  * @param index    Offset of a candidate opening backtick.
- * @return Byte length of the span including both backticks, or 0.
+ * @return Byte length of the span including both backticks, or 0 when `index` holds no backtick or
+ *         no backtick closes the span there.
  */
 static size_t backtick_span_len(const char* text, size_t text_len, size_t index)
     __attribute__((nonnull(1)));
@@ -273,7 +274,7 @@ static size_t backtick_span_len(const char* text, size_t text_len, size_t index)
       return i + 1 - index;
     }
   }
-  return text_len - index;
+  return 0;
 }
 
 static size_t hex_run_len(const char* text, size_t text_len, size_t index) {
