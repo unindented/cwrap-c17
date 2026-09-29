@@ -52,8 +52,7 @@ struct CommentSpanList {
  * quotes. An `#include "..."` path is treated as code, not as a string. Adjacent one-line
  * slash-star comments stay separate spans.
  *
- * @param source     Source bytes. Must hold at least `source_len` bytes. May be `NULL` only when
- *                   `source_len` is 0.
+ * @param source     Source bytes. Must hold at least `source_len` bytes. Must not be `NULL`.
  * @param source_len Number of bytes in `source`.
  * @param arena      Arena that owns the span array. Must not be `NULL`.
  * @param spans_out  Receives the span list. Written only on success. Must not be `NULL`.
@@ -66,6 +65,6 @@ int lex_comment_spans(const char* source,
                       struct Arena* arena,
                       struct CommentSpanList* spans_out,
                       char* err,
-                      size_t err_len) __attribute__((nonnull(3, 4)));
+                      size_t err_len) __attribute__((nonnull(1, 3, 4)));
 
 #endif

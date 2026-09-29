@@ -111,12 +111,9 @@ int lex_comment_spans(const char* source,
                       struct CommentSpanList* spans_out,
                       char* err,
                       size_t err_len) {
-  if (source_len > 0 && source == NULL) {
-    return error_report(err, err_len, "source is NULL with non-zero length");
-  }
-
-  const char* bytes = source == NULL ? "" : source;
-  const size_t count = scan_spans(NULL, bytes, source_len);
+  // Counting first sizes the array exactly. A bound from the source length alone would reserve
+  // tens of bytes per source byte.
+  const size_t count = scan_spans(NULL, source, source_len);
 
   struct CommentSpan* items = NULL;
   if (count > 0) {
@@ -124,7 +121,7 @@ int lex_comment_spans(const char* source,
     if (items == NULL) {
       return error_report(err, err_len, "out of memory");
     }
-    (void)scan_spans(items, bytes, source_len);
+    (void)scan_spans(items, source, source_len);
   }
 
   spans_out->items = items;

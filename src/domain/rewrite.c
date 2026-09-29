@@ -19,6 +19,7 @@ int rewrite_source(struct StringBuffer* buffer,
     return error_report(err, err_len, "wrapping column must be a positive integer");
   }
 
+  // The lexer requires a non-`NULL` source, which an empty input need not supply.
   const char* bytes = source == NULL ? "" : source;
   struct CommentSpanList spans;
   if (lex_comment_spans(bytes, source_len, arena, &spans, err, err_len) != 0) {
