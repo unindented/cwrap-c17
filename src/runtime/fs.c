@@ -91,12 +91,10 @@ int fs_read_file(const char* file_path,
   if (!S_ISREG(st.st_mode)) {
     return error_report(reason, reason_len, "not a regular file");
   }
-  if (st.st_size < 0) {
-    return error_report(reason, reason_len, "has a negative size");
-  }
   // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to 0
   // and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
-  // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target.
+  // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A negative
+  // size, which no regular file reports, would widen past the limit and fail here as well.
   if ((uintmax_t)st.st_size > (uintmax_t)SIZE_MAX - 1) {
     return error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %ju bytes",
                         SIZE_MAX - 1, (uintmax_t)st.st_size);
@@ -154,11 +152,8 @@ int fs_write_file(const char* file_path,
 
   static const char suffix[] = ".cwrap.XXXXXX";
   const char* basename = strrchr(destination_path, '/');
+  // The directory is a prefix of a path already in memory, so adding the suffix cannot overflow.
   const size_t directory_len = basename == NULL ? 0 : (size_t)(basename - destination_path) + 1;
-  if (directory_len > SIZE_MAX - sizeof(suffix)) {
-    free(resolved_path);
-    return error_report(reason, reason_len, "path is too long");
-  }
 
   char* temporary_path = malloc(directory_len + sizeof(suffix));
   if (temporary_path == NULL) {

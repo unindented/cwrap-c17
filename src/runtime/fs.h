@@ -73,8 +73,8 @@ int fs_read_file(const char* file_path,
  * @param reason     Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  *                   Untouched on success.
  * @param reason_len Size of `reason` in bytes.
- * @return `0` on success, or `-1` when the path is too long, and on an allocation, metadata,
- *         temporary-file, write, sync, close, or rename failure.
+ * @return `0` on success, or `-1` on an allocation, metadata, temporary-file, write, sync, close,
+ *         or rename failure.
  */
 int fs_write_file(const char* file_path,
                   const char* data,
