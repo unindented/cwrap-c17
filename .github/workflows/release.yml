@@ -147,19 +147,23 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           tar -C "$tmp" -xzf "$archive"
           bin="$tmp/cwrap-$VERSION-$TARGET/bin/cwrap"
+          run_cwrap() {
+            case "$TARGET" in
+              aarch64-linux-musl)
+                qemu-aarch64 "$bin" "$@"
+                ;;
+              *)
+                "$bin" "$@"
+                ;;
+            esac
+          }
+          run_cwrap --version
           # Every fixture in the golden test suite, rewrapped by the installed binary rather than a
           # build-tree binary.
           for fixture in tests/fixtures/*.c; do
             name=$(basename "$fixture")
             output="$tmp/$name"
-            case "$TARGET" in
-              aarch64-linux-musl)
-                qemu-aarch64 "$bin" -w 40 "$fixture" > "$output"
-                ;;
-              *)
-                "$bin" -w 40 "$fixture" > "$output"
-                ;;
-            esac
+            run_cwrap -w 40 "$fixture" > "$output"
             diff -u "tests/expected/$name" "$output"
           done
 
