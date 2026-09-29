@@ -144,6 +144,112 @@ static void test_mixed_flag_order(void) {
   TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
 }
 
+// `argv[0]` survives a parse that permutes the rest of the vector.
+static void test_program_name_survives_permutation(void) {
+  char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
+  char* program_name = argv[0];
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(argv[0] == program_name);
+  TEST_CHECK(strcmp(argv[0], "cwrap") == 0);
+}
+
+// Options placed after a positional file are still parsed and the positional tail remains intact.
+static void test_options_after_file(void) {
+  char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 40);
+  TEST_CHECK(options.path_count == 1);
+  TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
+}
+
+// `--help` resolves to the help action without requiring an input.
+static void test_help_long_flag(void) {
+  char* argv[] = {"cwrap", "--help", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_HELP);
+}
+
+// `-h` resolves to the help action.
+static void test_help_short_flag(void) {
+  char* argv[] = {"cwrap", "-h", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_HELP);
+}
+
+// `--version` resolves to the version action without requiring an input.
+static void test_version_long_flag(void) {
+  char* argv[] = {"cwrap", "--version", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+  TEST_CHECK(options.error_message[0] == '\0');
+}
+
+// `-V` resolves to the version action.
+static void test_version_short_flag(void) {
+  char* argv[] = {"cwrap", "-V", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+}
+
+// Version wins over help regardless of their order.
+static void test_version_flag_wins_over_help(void) {
+  char* help_first[] = {"cwrap", "--help", "--version", NULL};
+  struct CliOptions options = parse(help_first);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+
+  char* version_first[] = {"cwrap", "--version", "--help", NULL};
+  options = parse(version_first);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+}
+
+// A genuine informational action clears an earlier diagnostic that no longer describes the outcome.
+static void test_informational_flag_clears_diagnostic(void) {
+  char* argv[] = {"cwrap", "--bogus", "--help", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_HELP);
+  TEST_CHECK(options.error_message[0] == '\0');
+}
+
+// `--in-place` and `--check` cannot be combined.
+static void test_check_and_in_place_conflict(void) {
+  char* argv[] = {"cwrap", "--check", "-i", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
+}
+
+// Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
+static void test_stdin_cannot_be_combined(void) {
+  char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
+  struct CliOptions options = parse(mixed_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
+             0);
+
+  char* repeated_argv[] = {"cwrap", "-", "-", NULL};
+  options = parse(repeated_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
+}
+
+// In-place output needs a path and is rejected for implicit and explicit standard input.
+static void test_in_place_rejects_stdin(void) {
+  char* implicit_argv[] = {"cwrap", "--in-place", NULL};
+  struct CliOptions options = parse(implicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+
+  char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
+  options = parse(explicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+}
+
 // A non-numeric wrapping column is rejected with a diagnostic naming the offending value.
 static void test_invalid_width_rejected(void) {
   char* argv[] = {"cwrap", "--width", "nope", "a.c", NULL};
@@ -261,110 +367,12 @@ static void test_attached_value_rejected_on_valueless_short_flags(void) {
   TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-h=1'") == 0);
 }
 
-// `--in-place` and `--check` cannot be combined.
-static void test_check_and_in_place_conflict(void) {
-  char* argv[] = {"cwrap", "--check", "-i", "a.c", NULL};
+// An unrecognized short option is rejected with a diagnostic naming the option.
+static void test_unknown_short_option(void) {
+  char* argv[] = {"cwrap", "-x", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
-}
-
-// Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
-static void test_stdin_cannot_be_combined(void) {
-  char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
-  struct CliOptions options = parse(mixed_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
-             0);
-
-  char* repeated_argv[] = {"cwrap", "-", "-", NULL};
-  options = parse(repeated_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
-}
-
-// In-place output needs a path and is rejected for implicit and explicit standard input.
-static void test_in_place_rejects_stdin(void) {
-  char* implicit_argv[] = {"cwrap", "--in-place", NULL};
-  struct CliOptions options = parse(implicit_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
-
-  char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
-  options = parse(explicit_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
-}
-
-// `--version` resolves to the version action without requiring an input.
-static void test_version_long_flag(void) {
-  char* argv[] = {"cwrap", "--version", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
-}
-
-// `--help` resolves to the help action without requiring an input.
-static void test_help_long_flag(void) {
-  char* argv[] = {"cwrap", "--help", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_HELP);
-}
-
-// `-V` resolves to the version action.
-static void test_version_short_flag(void) {
-  char* argv[] = {"cwrap", "-V", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_VERSION);
-}
-
-// `-h` resolves to the help action.
-static void test_help_short_flag(void) {
-  char* argv[] = {"cwrap", "-h", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_HELP);
-}
-
-// Version wins over help regardless of their order.
-static void test_version_flag_wins_over_help(void) {
-  char* help_first[] = {"cwrap", "--help", "--version", NULL};
-  struct CliOptions options = parse(help_first);
-  TEST_CHECK(options.action == CLI_ACTION_VERSION);
-
-  char* version_first[] = {"cwrap", "--version", "--help", NULL};
-  options = parse(version_first);
-  TEST_CHECK(options.action == CLI_ACTION_VERSION);
-}
-
-// A genuine informational action clears an earlier diagnostic that no longer describes the outcome.
-static void test_informational_flag_clears_diagnostic(void) {
-  char* argv[] = {"cwrap", "--bogus", "--help", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_HELP);
-  TEST_CHECK(options.error_message[0] == '\0');
-}
-
-// `argv[0]` survives a parse that permutes the rest of the vector.
-static void test_program_name_survives_permutation(void) {
-  char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
-  char* program_name = argv[0];
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(argv[0] == program_name);
-  TEST_CHECK(strcmp(argv[0], "cwrap") == 0);
-}
-
-// Options placed after a positional file are still parsed and the positional tail remains intact.
-static void test_options_after_file(void) {
-  char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 40);
-  TEST_CHECK(options.path_count == 1);
-  TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
+  TEST_CHECK(strcmp(options.error_message, "unknown option '-x'") == 0);
 }
 
 // An unrecognized long option is rejected with a diagnostic naming the option.
@@ -373,14 +381,6 @@ static void test_unknown_long_option(void) {
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(strcmp(options.error_message, "unknown option '--nope'") == 0);
-}
-
-// An unrecognized short option is rejected with a diagnostic naming the option.
-static void test_unknown_short_option(void) {
-  char* argv[] = {"cwrap", "-x", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "unknown option '-x'") == 0);
 }
 
 // The generated version accessor returns a non-empty version.
@@ -500,6 +500,17 @@ TEST_LIST = {
     {"in place short flag", test_in_place_short_flag},
     {"width short flag in cluster equals value", test_width_short_flag_in_cluster_equals_value},
     {"mixed flag order", test_mixed_flag_order},
+    {"program name survives permutation", test_program_name_survives_permutation},
+    {"options after file", test_options_after_file},
+    {"help long flag", test_help_long_flag},
+    {"help short flag", test_help_short_flag},
+    {"version long flag", test_version_long_flag},
+    {"version short flag", test_version_short_flag},
+    {"version flag wins over help", test_version_flag_wins_over_help},
+    {"informational flag clears diagnostic", test_informational_flag_clears_diagnostic},
+    {"check and in place conflict", test_check_and_in_place_conflict},
+    {"stdin cannot be combined", test_stdin_cannot_be_combined},
+    {"in place rejects stdin", test_in_place_rejects_stdin},
     {"invalid width rejected", test_invalid_width_rejected},
     {"zero width rejected", test_zero_width_rejected},
     {"negative width rejected", test_negative_width_rejected},
@@ -509,19 +520,8 @@ TEST_LIST = {
     {"attached value rejected on valueless flags", test_attached_value_rejected_on_valueless_flags},
     {"attached value rejected on valueless short flags",
      test_attached_value_rejected_on_valueless_short_flags},
-    {"check and in place conflict", test_check_and_in_place_conflict},
-    {"stdin cannot be combined", test_stdin_cannot_be_combined},
-    {"in place rejects stdin", test_in_place_rejects_stdin},
-    {"version long flag", test_version_long_flag},
-    {"help long flag", test_help_long_flag},
-    {"version short flag", test_version_short_flag},
-    {"help short flag", test_help_short_flag},
-    {"version flag wins over help", test_version_flag_wins_over_help},
-    {"informational flag clears diagnostic", test_informational_flag_clears_diagnostic},
-    {"program name survives permutation", test_program_name_survives_permutation},
-    {"options after file", test_options_after_file},
-    {"unknown long option", test_unknown_long_option},
     {"unknown short option", test_unknown_short_option},
+    {"unknown long option", test_unknown_long_option},
     {"version accessor present", test_version_accessor_present},
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
