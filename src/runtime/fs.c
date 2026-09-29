@@ -66,6 +66,19 @@ static int fs_write_file_bytes(FILE* fp,
                                char* reason,
                                size_t reason_len) __attribute__((nonnull(1, 2)));
 
+/**
+ * @brief Returns the permission bits a newly created file gets from the process umask.
+ *
+ * `mkstemp` creates its file `0600` regardless of the umask, so a destination that did not exist
+ * before needs the mode `fopen(path, "wb")` would have given it applied explicitly. There is no
+ * portable call that only reads the umask, so this sets it and restores it. That flip is
+ * process-wide and races with any other thread that creates a file, which is safe only because
+ * cwrap is single-threaded. Revisit this before any file write moves off the main thread.
+ *
+ * @return `0666` reduced by the process umask.
+ */
+static mode_t fs_write_file_created_mode(void);
+
 int fs_read_file(const char* file_path,
                  char** data_out,
                  size_t* data_len_out,
@@ -166,6 +179,8 @@ int fs_write_file(const char* file_path,
     return fs_reason_errno(reason, reason_len, stat_errno);
   }
 
+  const mode_t mode = has_existing_file ? st.st_mode & 07777 : fs_write_file_created_mode();
+
   int fd = -1;
   FILE* fp = NULL;
   int rc = -1;
@@ -184,7 +199,7 @@ int fs_write_file(const char* file_path,
   fd = -1;
 
   rc = fs_write_file_bytes(fp, data, data_len, reason, reason_len);
-  if (rc == 0 && has_existing_file && fchmod(fileno(fp), st.st_mode & 07777) != 0) {
+  if (rc == 0 && fchmod(fileno(fp), mode) != 0) {
     (void)fs_reason_errno(reason, reason_len, errno);
     rc = -1;
   }
@@ -290,4 +305,10 @@ static int fs_write_file_bytes(FILE* fp,
     return fs_reason_errno(reason, reason_len, write_errno == 0 ? EIO : write_errno);
   }
   return error_report(reason, reason_len, "wrote only %zu of %zu bytes", written, data_len);
+}
+
+static mode_t fs_write_file_created_mode(void) {
+  const mode_t mask = umask(0);
+  (void)umask(mask);
+  return (mode_t)(0666 & ~mask);
 }

@@ -104,6 +104,38 @@ static void test_write_then_read_round_trips(void) {
   free(file_path);
 }
 
+// A file that did not exist gets mode `0666` reduced by the umask rather than `mkstemp`'s `0600`,
+// and no temporary survives the write. `write_temp_file` pre-creates its file, so only this test
+// reaches the no-existing-file path.
+static void test_write_file_creates_file_with_umask_mode(void) {
+  char root_dir_template[] = "/tmp/cwrap-fs-mode.XXXXXX";
+  const char* root_dir = mkdtemp(root_dir_template);
+  TEST_ASSERT(root_dir != NULL);
+  if (root_dir == NULL) {
+    return;
+  }
+  char file_path[PATH_MAX];
+  const int path_n = snprintf(file_path, sizeof(file_path), "%s/new.c", root_dir);
+  TEST_ASSERT(path_n > 0 && (size_t)path_n < sizeof(file_path));
+  if (path_n <= 0 || (size_t)path_n >= sizeof(file_path)) {
+    (void)rmdir(root_dir);
+    return;
+  }
+
+  // A umask other than the usual `022` is the case a hardcoded mode would discard. Restore it
+  // before asserting, so a failure cannot leak the changed value into later tests.
+  const mode_t previous_umask = umask(027);
+  const int write_rc = fs_write_file(file_path, "x", 1, NULL, 0);
+  (void)umask(previous_umask);
+
+  TEST_CHECK(write_rc == 0);
+  struct stat st;
+  TEST_ASSERT(stat(file_path, &st) == 0);
+  TEST_CHECK((st.st_mode & 07777) == (0666 & ~027));
+  (void)unlink(file_path);
+  TEST_CHECK(rmdir(root_dir) == 0);
+}
+
 // Atomic replacement follows a symbolic link and leaves the link itself in place.
 static void test_write_file_follows_symbolic_link(void) {
   char* target_path = write_temp_file("before", strlen("before"));
@@ -306,6 +338,7 @@ static void test_write_file_rejects_missing_parent_and_dir_target(void) {
 
 TEST_LIST = {
     {"write then read round trips", test_write_then_read_round_trips},
+    {"write file creates file with umask mode", test_write_file_creates_file_with_umask_mode},
     {"write file follows symbolic link", test_write_file_follows_symbolic_link},
     {"write file failure preserves existing file", test_write_file_failure_preserves_existing_file},
     {"read file accepts empty", test_read_file_accepts_empty},

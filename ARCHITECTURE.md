@@ -63,7 +63,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 ### Runtime (`src/runtime`)
 
-- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes close a sibling temporary file before renaming it over the destination, preserving an existing file on failure.
+- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes close a sibling temporary file before renaming it over the destination, preserving an existing file on failure. An existing destination keeps its permission bits, and a new file gets `0666` minus the umask.
 - [stream](src/runtime/stream.h): Buffers a potentially non-seekable, `NUL`-free stream through EOF without closing it.
 
 ### Core (`src/core`)

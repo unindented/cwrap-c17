@@ -46,8 +46,14 @@ int fs_read_file(const char* file_path,
  * @brief Atomically writes `data_len` bytes to `file_path`.
  *
  * Writes and closes a sibling temporary file before renaming it over the destination, so a failed
- * write leaves an existing file untouched. Preserves an existing destination's permission bits and
- * follows a symbolic link rather than replacing it. Does not create missing parent directories.
+ * write leaves an existing file untouched. Follows a symbolic link rather than replacing it. Does
+ * not create missing parent directories.
+ *
+ * An existing destination keeps its permission bits. A newly created file gets mode `0666` reduced
+ * by the process umask, the mode `fopen(path, "wb")` would give it. Because `rename` installs a new
+ * inode rather than writing through the old one, replacement breaks any hard link to the
+ * destination, which keeps the previous contents, and does not preserve the destination's owner,
+ * group, ACLs or extended attributes.
  *
  * @param file_path  Destination path. Must not be `NULL`.
  * @param data       Source bytes. Must hold at least `data_len` bytes. Must not be `NULL`.
