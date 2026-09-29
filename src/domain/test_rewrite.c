@@ -87,6 +87,23 @@ static void test_leaves_comment_after_comment_unchanged(void) {
   free(out);
 }
 
+// A line comment continued by an LF or CRLF splice, and the code after it, stay unchanged.
+static void test_leaves_spliced_line_comment_unchanged(void) {
+  const char* sources[] = {
+      "// note \\\n/* still the line comment above\nint x; /* real */\n",
+      "// note \\\r\n/* still the line comment above\r\nint x; /* real */\r\n",
+  };
+  for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+    char* out = rewrite(sources[i], 20);
+    TEST_ASSERT(out != NULL);
+    if (out == NULL) {
+      return;
+    }
+    TEST_CHECK(strcmp(out, sources[i]) == 0);
+    free(out);
+  }
+}
+
 // Short line-comment lines are joined.
 static void test_joins_short_line_comments(void) {
   const char* source = "// one\n// two\n";
@@ -409,6 +426,7 @@ TEST_LIST = {
     {"leaves trailing comment unchanged", test_leaves_trailing_comment_unchanged},
     {"leaves spliced trailing comment unchanged", test_leaves_spliced_trailing_comment_unchanged},
     {"leaves comment after comment unchanged", test_leaves_comment_after_comment_unchanged},
+    {"leaves spliced line comment unchanged", test_leaves_spliced_line_comment_unchanged},
     {"joins short line comments", test_joins_short_line_comments},
     {"narrow width splits atoms", test_narrow_width_splits_atoms},
     {"wraps wide emoji by display columns", test_wraps_wide_emoji_by_display_columns},

@@ -36,6 +36,19 @@ static void test_groups_line_runs_and_skips_trailing(void) {
   arena_free(&arena);
 }
 
+// A spliced line comment is omitted and ends the line run before it.
+static void test_groups_skip_spliced_line_comment(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "// one\n// two \\\n  three\n// four\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_CHECK(blocks.count == 2);
+  TEST_CHECK(blocks.items[0].start == 0);
+  TEST_CHECK(blocks.items[0].end == strlen("// one"));
+  TEST_CHECK(blocks.items[1].start == strlen("// one\n// two \\\n  three\n"));
+  arena_free(&arena);
+}
+
 // Continuation stars classify a block as starred; their absence classifies it as hanging.
 static void test_classifies_starred_and_hanging(void) {
   struct Arena arena;
@@ -138,6 +151,7 @@ static void test_emit_omits_first_line_indent(void) {
 
 TEST_LIST = {
     {"groups line runs and skips trailing", test_groups_line_runs_and_skips_trailing},
+    {"groups skip spliced line comment", test_groups_skip_spliced_line_comment},
     {"classifies starred and hanging", test_classifies_starred_and_hanging},
     {"extract drops hanging closer line", test_extract_drops_hanging_closer_line},
     {"extract keeps hanging sample indent", test_extract_keeps_hanging_sample_indent},

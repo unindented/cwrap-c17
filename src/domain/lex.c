@@ -15,6 +15,8 @@ enum LexState {
   LEX_STATE_SLASH,
   /** A `//` comment. */
   LEX_STATE_LINE_COMMENT,
+  /** A possible line splice in a `//` comment. */
+  LEX_STATE_LINE_COMMENT_BACKSLASH,
   /** The body of a slash-star comment. */
   LEX_STATE_BLOCK_COMMENT,
   /** A star that may close a slash-star comment. */
@@ -254,7 +256,9 @@ static size_t scan_spans(struct CommentSpan* items, const char* source, size_t s
         break;
 
       case LEX_STATE_LINE_COMMENT:
-        if (c == '\n') {
+        if (c == '\\') {
+          state = LEX_STATE_LINE_COMMENT_BACKSLASH;
+        } else if (c == '\n') {
           const size_t comment_end = i > comment_start && source[i - 1] == '\r' ? i - 1 : i;
           store_span(items, count,
                      (struct CommentSpan){
@@ -271,6 +275,15 @@ static size_t scan_spans(struct CommentSpan* items, const char* source, size_t s
           has_line_code = false;
           is_include = is_include_line(source, line_start, source_len);
           continue;
+        }
+        break;
+
+      case LEX_STATE_LINE_COMMENT_BACKSLASH:
+        if (consume_line_splice(source, source_len, i, LEX_STATE_LINE_COMMENT, &state, &column)) {
+          continue;
+        }
+        if (c != '\\') {
+          state = LEX_STATE_LINE_COMMENT;
         }
         break;
 
@@ -408,7 +421,7 @@ static size_t scan_spans(struct CommentSpan* items, const char* source, size_t s
     column = next_column;
   }
 
-  if (state == LEX_STATE_LINE_COMMENT) {
+  if (state == LEX_STATE_LINE_COMMENT || state == LEX_STATE_LINE_COMMENT_BACKSLASH) {
     store_span(items, count,
                (struct CommentSpan){
                    .kind = comment_kind,

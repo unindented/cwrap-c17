@@ -100,8 +100,9 @@ struct BodyLineList {
  * @brief Groups wrapable comment spans into blocks and classifies each block's decoration.
  *
  * Consecutive same-indent `//` comments with only a newline between them become one line block. A
- * trailing comment is omitted. A slash-star block is starred when a continuation `*` sits at the
- * decoration column, otherwise hanging. A `*` aligned under the prose is a list marker.
+ * trailing comment and a `//` comment continued by a backslash line splice are omitted. A
+ * slash-star block is starred when a continuation `*` sits at the decoration column, otherwise
+ * hanging. A `*` aligned under the prose is a list marker.
  *
  * @param source     Source bytes referenced by `spans`. Must not be `NULL` when `source_len` is
  *                   non-zero.

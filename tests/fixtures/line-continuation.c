@@ -5,3 +5,7 @@ int a;
 // joined \
 // across a splice
 int b;
+
+// splice into a slash-star opener \
+/* is still part of the line comment
+int c; /* code before this comment */

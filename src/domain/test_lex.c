@@ -121,6 +121,21 @@ static void test_code_splice_preserves_trailing_status(void) {
   arena_free(&arena);
 }
 
+// LF and CRLF line splices keep the lexer inside a line comment, so a slash-star opener on the
+// spliced line starts no block comment.
+static void test_splices_extend_line_comment(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  struct CommentSpanList lf = lex(&arena, "// a \\\n/* b\nint x;\n");
+  TEST_CHECK(lf.count == 1);
+  TEST_CHECK(lf.items[0].kind == COMMENT_KIND_LINE);
+  TEST_CHECK(lf.items[0].end == strlen("// a \\\n/* b"));
+  struct CommentSpanList crlf = lex(&arena, "// a \\\r\n/* b\r\nint x;\r\n");
+  TEST_CHECK(crlf.count == 1);
+  TEST_CHECK(crlf.items[0].end == strlen("// a \\\r\n/* b"));
+  arena_free(&arena);
+}
+
 // A character literal containing a quote does not start a string.
 static void test_char_literal_quote_is_not_a_string(void) {
   struct Arena arena;
@@ -152,6 +167,7 @@ TEST_LIST = {
     {"include path does not hide comment", test_include_path_does_not_hide_comment},
     {"include paths yield no false comments", test_include_paths_yield_no_false_comments},
     {"code splice preserves trailing status", test_code_splice_preserves_trailing_status},
+    {"splices extend line comment", test_splices_extend_line_comment},
     {"char literal quote is not a string", test_char_literal_quote_is_not_a_string},
     {"crlf splices preserve literal state", test_crlf_splices_preserve_literal_state},
     {NULL, NULL},

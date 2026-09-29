@@ -14,6 +14,19 @@
 enum { TAB_WIDTH = 8 };
 
 /**
+ * @brief Reports whether `span` is rewritten rather than copied unchanged.
+ *
+ * A trailing comment and a `//` comment continued by a backslash line splice are copied unchanged.
+ * The spliced physical lines carry no `//` marker, so no refill can re-emit them as a line comment.
+ *
+ * @param source Source bytes. Must not be `NULL`.
+ * @param span   Comment span. Must not be `NULL`.
+ * @return `true` when the span is rewritten, or `false` when it is copied unchanged.
+ */
+static bool is_span_rewritable(const char* source, const struct CommentSpan* span)
+    __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Reports whether `spans[index]` can extend the open `//` run ending at `previous_end`.
  *
  * @param source         Source bytes. Must not be `NULL`.
@@ -173,7 +186,7 @@ int comment_group(const char* source,
   size_t count = 0;
   for (size_t i = 0; i < spans->count; i++) {
     const struct CommentSpan* span = &spans->items[i];
-    if (span->is_trailing) {
+    if (!is_span_rewritable(source, span)) {
       continue;
     }
     count++;
@@ -194,7 +207,7 @@ int comment_group(const char* source,
     size_t n = 0;
     for (size_t i = 0; i < spans->count; i++) {
       const struct CommentSpan* span = &spans->items[i];
-      if (span->is_trailing) {
+      if (!is_span_rewritable(source, span)) {
         continue;
       }
       struct CommentBlock* block = &items[n];
@@ -376,6 +389,14 @@ size_t comment_first_prefix_columns(const struct CommentBlock* block) {
   return block->indent_columns + marker_columns;
 }
 
+static bool is_span_rewritable(const char* source, const struct CommentSpan* span) {
+  if (span->is_trailing) {
+    return false;
+  }
+  return span->kind != COMMENT_KIND_LINE ||
+         memchr(source + span->start, '\n', span->end - span->start) == NULL;
+}
+
 static bool is_line_run_continuation(const char* source,
                                      const struct CommentSpanList* spans,
                                      size_t index,
@@ -385,7 +406,7 @@ static bool is_line_run_continuation(const char* source,
     return false;
   }
   const struct CommentSpan* next = &spans->items[index];
-  if (next->kind != COMMENT_KIND_LINE || next->is_trailing ||
+  if (next->kind != COMMENT_KIND_LINE || !is_span_rewritable(source, next) ||
       next->opener_column != indent_columns) {
     return false;
   }
