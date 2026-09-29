@@ -38,11 +38,16 @@ struct CommentBlock {
   /** Whether newly emitted lines use CRLF rather than LF. */
   bool has_crlf_newlines;
 
+  /** Opener marker the block is emitted with, in static storage: `//`, `///`, `//!`, or slash-star
+     followed by nothing, a `*`, or a `!`. A line block repeats it on every line. */
+  const char* opener;
+
   /** Whether the opener line carries no prose, so it stays a marker-only line. */
   bool is_opener_empty;
 
-  /** Whether the opener is a Doxygen slash-star-star marker. */
-  bool is_doxygen_opener;
+  /** Whether `opener` is a Doxygen marker, any but `//` and a bare slash-star, so body lines can
+     carry Doxygen commands. */
+  bool is_doxygen;
 };
 
 /** Arena-owned list of wrapable comment blocks in source order. */
@@ -99,10 +104,11 @@ struct BodyLineList {
 /**
  * @brief Groups wrapable comment spans into blocks and classifies each block's decoration.
  *
- * Consecutive same-indent `//` comments with only a newline between them become one line block. A
- * trailing comment and a `//` comment continued by a backslash line splice are omitted. A
- * slash-star block is starred when a continuation `*` sits at the decoration column, otherwise
- * hanging. A `*` aligned under the prose is a list marker.
+ * Consecutive same-indent line comments with the same marker (`//`, `///`, or `//!`) and only a
+ * newline between them become one line block. A trailing comment, a `//` comment continued by a
+ * backslash line splice, and a block with no alphanumeric or non-ASCII payload byte, such as a
+ * banner, are omitted. A slash-star block is starred when a continuation `*` sits at the decoration
+ * column, otherwise hanging. A `*` aligned under the prose is a list marker.
  *
  * @param source     Source bytes referenced by `spans`. Must not be `NULL` when `source_len` is
  *                   non-zero.
@@ -147,7 +153,8 @@ int comment_extract_body(const char* source,
 /**
  * @brief Writes `block` reconstructed from `lines` onto `buffer`.
  *
- * Restores the opener, continuation prefixes, and closer required by `block->shape`.
+ * Restores the recorded opener marker, the continuation prefixes, and the closer required by
+ * `block->shape`.
  *
  * @param buffer Buffer that receives the reconstructed comment. Must not be `NULL`.
  * @param source Source bytes, used only to recover the original indent whitespace. Must not be
@@ -178,15 +185,16 @@ bool comment_has_opener_closer(const struct CommentBlock* block, const struct Bo
  * @brief Returns the display-column width of the continuation prefix for `block`.
  *
  * @param block Block whose continuation prefix is measured. Must not be `NULL`.
- * @return Columns occupied by indent plus `// `, ` * `, or hanging spaces.
+ * @return Columns occupied by indent plus the line marker and a space, ` * `, or hanging spaces.
  */
 size_t comment_prefix_columns(const struct CommentBlock* block) __attribute__((nonnull(1)));
 
 /**
  * @brief Returns the display-column width before the first body line for `block`.
  *
- * An inline Doxygen opener occupies one more column than a continuation prefix. A marker-only
- * opener puts the first body line on a continuation and therefore uses the continuation width.
+ * An inline opener occupies its marker plus one space, which is one more column than a continuation
+ * prefix for a three-byte slash-star marker. A marker-only opener puts the first body line on a
+ * continuation and therefore uses the continuation width.
  *
  * @param block Block whose first body-line prefix is measured. Must not be `NULL`.
  * @return Columns occupied before the first body line.

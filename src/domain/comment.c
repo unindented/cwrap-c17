@@ -27,20 +27,44 @@ static bool is_span_rewritable(const char* source, const struct CommentSpan* spa
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reports whether `spans[index]` can extend the open `//` run ending at `previous_end`.
+ * @brief Reports whether `spans[index]` can extend the line-comment run that `first` opens.
  *
- * @param source         Source bytes. Must not be `NULL`.
- * @param spans          Span list. Must not be `NULL`.
- * @param index          Candidate span index.
- * @param previous_end   Exclusive end of the previous span in the run.
- * @param indent_columns Required opener column.
+ * @param source       Source bytes. Must not be `NULL`.
+ * @param spans        Span list. Must not be `NULL`.
+ * @param index        Candidate span index.
+ * @param previous_end Exclusive end of the previous span in the run.
+ * @param first        First span of the run, whose column and marker the candidate must match. Must
+ *                     not be `NULL`.
  * @return `true` when the span continues the run.
  */
 static bool is_line_run_continuation(const char* source,
                                      const struct CommentSpanList* spans,
                                      size_t index,
                                      size_t previous_end,
-                                     size_t indent_columns) __attribute__((nonnull(1, 2)));
+                                     const struct CommentSpan* first)
+    __attribute__((nonnull(1, 2, 5)));
+
+/**
+ * @brief Returns the opener marker of `span`.
+ *
+ * @param source Source bytes. Must not be `NULL`.
+ * @param span   Comment span. Must not be `NULL`.
+ * @return `//`, `///`, or `//!` for a line comment, or slash-star, slash-star-star, or
+ *         slash-star-bang for a block comment, in static storage.
+ */
+static const char* span_opener(const char* source, const struct CommentSpan* span)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Reports whether `block` holds any byte of prose between its markers.
+ *
+ * @param source Source bytes. Must not be `NULL`.
+ * @param block  Grouped block. Must not be `NULL`.
+ * @return `true` when an ASCII letter or digit, or a non-ASCII byte, appears in the block, or
+ *         `false` for a banner or other decoration-only block that is copied unchanged.
+ */
+static bool has_alphanumeric_payload(const char* source, const struct CommentBlock* block)
+    __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Classifies a slash-star span as starred or hanging from its continuation lines.
@@ -191,20 +215,20 @@ int comment_group(const char* source,
     }
     count++;
     if (span->kind == COMMENT_KIND_LINE) {
-      while (is_line_run_continuation(source, spans, i + 1, span->end, span->opener_column)) {
+      const struct CommentSpan* first = span;
+      while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end, first)) {
         i++;
-        span = &spans->items[i];
       }
     }
   }
 
   struct CommentBlock* items = NULL;
+  size_t n = 0;
   if (count > 0) {
     items = arena_calloc(arena, count, sizeof(*items));
     if (items == NULL) {
       return error_report(err, err_len, "out of memory");
     }
-    size_t n = 0;
     for (size_t i = 0; i < spans->count; i++) {
       const struct CommentSpan* span = &spans->items[i];
       if (!is_span_rewritable(source, span)) {
@@ -213,18 +237,21 @@ int comment_group(const char* source,
       struct CommentBlock* block = &items[n];
       fill_block_from_span(block, source, source_len, span);
       if (span->kind == COMMENT_KIND_LINE) {
-        while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end,
-                                        span->opener_column)) {
+        while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end, span)) {
           i++;
           block->end = spans->items[i].end;
         }
       }
-      n++;
+      // A block without prose, such as a banner, keeps its exact bytes. The next block reuses the
+      // slot.
+      if (has_alphanumeric_payload(source, block)) {
+        n++;
+      }
     }
   }
 
-  blocks_out->items = items;
-  blocks_out->count = count;
+  blocks_out->items = n > 0 ? items : NULL;
+  blocks_out->count = n;
   return 0;
 }
 
@@ -306,7 +333,7 @@ int comment_emit(struct StringBuffer* buffer,
           return -1;
         }
       }
-      if (string_buffer_append(buffer, "//") != 0) {
+      if (string_buffer_append(buffer, block->opener) != 0) {
         return -1;
       }
       if (lines->items[i].text_len > 0) {
@@ -319,7 +346,7 @@ int comment_emit(struct StringBuffer* buffer,
     return 0;
   }
 
-  if (string_buffer_append(buffer, block->is_doxygen_opener ? "/**" : "/*") != 0) {
+  if (string_buffer_append(buffer, block->opener) != 0) {
     return -1;
   }
 
@@ -383,12 +410,15 @@ bool comment_has_opener_closer(const struct CommentBlock* block, const struct Bo
 }
 
 size_t comment_prefix_columns(const struct CommentBlock* block) {
-  return block->indent_columns + 3;
+  const size_t marker_columns = block->shape == COMMENT_SHAPE_LINE ? strlen(block->opener) + 1 : 3;
+  return block->indent_columns + marker_columns;
 }
 
 size_t comment_first_prefix_columns(const struct CommentBlock* block) {
-  const size_t marker_columns = block->is_doxygen_opener && !block->is_opener_empty ? 4 : 3;
-  return block->indent_columns + marker_columns;
+  if (block->is_opener_empty) {
+    return comment_prefix_columns(block);
+  }
+  return block->indent_columns + strlen(block->opener) + 1;
 }
 
 static bool is_span_rewritable(const char* source, const struct CommentSpan* span) {
@@ -403,13 +433,14 @@ static bool is_line_run_continuation(const char* source,
                                      const struct CommentSpanList* spans,
                                      size_t index,
                                      size_t previous_end,
-                                     size_t indent_columns) {
+                                     const struct CommentSpan* first) {
   if (index >= spans->count) {
     return false;
   }
   const struct CommentSpan* next = &spans->items[index];
   if (next->kind != COMMENT_KIND_LINE || !is_span_rewritable(source, next) ||
-      next->opener_column != indent_columns) {
+      next->opener_column != first->opener_column ||
+      strcmp(span_opener(source, next), span_opener(source, first)) != 0) {
     return false;
   }
   if (next->start == previous_end + 1 && source[previous_end] == '\n') {
@@ -418,6 +449,39 @@ static bool is_line_run_continuation(const char* source,
   if (next->start == previous_end + 2 && source[previous_end] == '\r' &&
       source[previous_end + 1] == '\n') {
     return true;
+  }
+  return false;
+}
+
+static const char* span_opener(const char* source, const struct CommentSpan* span) {
+  const char* const text = source + span->start;
+  const size_t text_len = span->end - span->start;
+  if (span->kind == COMMENT_KIND_LINE) {
+    if (text_len >= 3 && text[2] == '!') {
+      return "//!";
+    }
+    // Four or more slashes are a plain comment whose payload starts with slashes.
+    if (text_len >= 3 && text[2] == '/' && (text_len == 3 || text[3] != '/')) {
+      return "///";
+    }
+    return "//";
+  }
+  // A slash-star-star that the closing slash follows is an empty plain block, not a Doxygen one.
+  if (text_len >= 4 && text[2] == '*' && text[3] != '/') {
+    return "/**";
+  }
+  if (text_len >= 3 && text[2] == '!') {
+    return "/*!";
+  }
+  return "/*";
+}
+
+static bool has_alphanumeric_payload(const char* source, const struct CommentBlock* block) {
+  for (size_t i = block->start; i < block->end; i++) {
+    const unsigned char c = (unsigned char)source[i];
+    if (c >= 0x80 || ascii_is_alphanumeric(c)) {
+      return true;
+    }
   }
   return false;
 }
@@ -478,21 +542,15 @@ static void fill_block_from_span(struct CommentBlock* block,
       source[span->end + 1] == '\n') {
     block->has_crlf_newlines = true;
   }
-  block->is_doxygen_opener = false;
+  block->opener = span_opener(source, span);
+  block->is_doxygen = strcmp(block->opener, "//") != 0 && strcmp(block->opener, "/*") != 0;
   block->is_opener_empty = false;
   if (span->kind == COMMENT_KIND_LINE) {
     block->shape = COMMENT_SHAPE_LINE;
     return;
   }
   block->shape = classify_block_shape(source, span);
-  if (span->end >= span->start + 3 && source[span->start] == '/' &&
-      source[span->start + 1] == '*' && source[span->start + 2] == '*') {
-    block->is_doxygen_opener = true;
-  }
-  size_t i = span->start + 2;
-  if (block->is_doxygen_opener) {
-    i++;
-  }
+  size_t i = span->start + strlen(block->opener);
   while (i < span->end && (source[i] == ' ' || source[i] == '\t')) {
     i++;
   }
@@ -522,8 +580,9 @@ static int append_stripped_line(const char* source,
     while (start < end && (source[start] == ' ' || source[start] == '\t')) {
       start++;
     }
-    if (start + 1 < end && source[start] == '/' && source[start + 1] == '/') {
-      start += 2;
+    const size_t opener_len = strlen(block->opener);
+    if (end - start >= opener_len && memcmp(source + start, block->opener, opener_len) == 0) {
+      start += opener_len;
       if (start < end && source[start] == ' ') {
         start++;
       }
@@ -544,11 +603,9 @@ static int append_stripped_line(const char* source,
       while (start < end && (source[start] == ' ' || source[start] == '\t')) {
         start++;
       }
-      if (start + 1 < end && source[start] == '/' && source[start + 1] == '*') {
-        start += 2;
-        if (start < end && source[start] == '*') {
-          start++;
-        }
+      const size_t opener_len = strlen(block->opener);
+      if (end - start >= opener_len && memcmp(source + start, block->opener, opener_len) == 0) {
+        start += opener_len;
         if (start < end && source[start] == ' ') {
           start++;
         }
@@ -564,7 +621,7 @@ static int append_stripped_line(const char* source,
         }
       }
     } else {
-      const size_t hang_columns = block->indent_columns + (block->is_doxygen_opener ? 4 : 3);
+      const size_t hang_columns = block->indent_columns + strlen(block->opener) + 1;
       start = skip_hanging_indent(source, start, end, hang_columns);
     }
     if ((is_last && start == end) || (is_first && block->is_opener_empty && start == end)) {

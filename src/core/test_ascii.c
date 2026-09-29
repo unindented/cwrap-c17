@@ -21,10 +21,10 @@ static void test_is_digit_accepts_only_ascii_digits(void) {
 }
 
 // `ascii_is_alphanumeric` answers for `[0-9A-Za-z]` and nothing else, asserted at every edge of the
-// three ranges. Two callers depend on the exact set. `hex_run_len` uses it to end a byte run, which
-// is what stops `be able` from parsing as the run `be ab`, and `is_decoration_line` uses it to
-// decide a payload carries no letters or digits and is therefore left unwrapped. Widening it by one
-// byte changes both, silently.
+// three ranges. Three callers depend on the exact set. `hex_run_len` uses it to end a byte run,
+// which is what stops `be able` from parsing as the run `be ab`. `has_alphanumeric_payload` and
+// `is_decoration_line` use it to decide a block or a payload line carries no letters or digits and
+// is therefore left unwrapped. Widening it by one byte changes all three, silently.
 static void test_is_alnum_accepts_only_letters_and_digits(void) {
   TEST_CHECK(ascii_is_alphanumeric('0'));
   TEST_CHECK(ascii_is_alphanumeric('9'));

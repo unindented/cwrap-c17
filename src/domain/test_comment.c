@@ -24,6 +24,22 @@ static struct CommentBlockList group(struct Arena* arena, const char* source) {
   return blocks;
 }
 
+/**
+ * @brief Groups `source` and extracts the body lines of its only block.
+ *
+ * @param arena  Arena that owns the grouped blocks and extracted lines.
+ * @param source Terminated source text holding one wrapable block.
+ * @return The extracted body-line list.
+ */
+static struct BodyLineList extract(struct Arena* arena, const char* source) {
+  struct CommentBlockList blocks = group(arena, source);
+  TEST_ASSERT(blocks.count == 1);
+  struct BodyLineList lines = {0};
+  char err[64];
+  TEST_CHECK(comment_extract_body(source, &blocks.items[0], arena, &lines, err, sizeof(err)) == 0);
+  return lines;
+}
+
 // Consecutive same-indent line comments become one block. A trailing comment is omitted.
 static void test_groups_line_runs_and_skips_trailing(void) {
   struct Arena arena;
@@ -49,6 +65,49 @@ static void test_groups_skip_spliced_line_comment(void) {
   arena_free(&arena);
 }
 
+// Each opener is recorded exactly, and only the four Doxygen markers enable commands.
+static void test_records_opener_marker(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* sources[] = {"// a\n", "/// a\n", "//! a\n", "/* a */\n", "/** a */\n", "/*! a */\n"};
+  const char* openers[] = {"//", "///", "//!", "/*", "/**", "/*!"};
+  const bool is_doxygen[] = {false, true, true, false, true, true};
+  for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+    struct CommentBlockList blocks = group(&arena, sources[i]);
+    TEST_ASSERT(blocks.count == 1);
+    TEST_CHECK(strcmp(blocks.items[0].opener, openers[i]) == 0);
+    TEST_CHECK(blocks.items[0].is_doxygen == is_doxygen[i]);
+    TEST_MSG("source: '%s'", sources[i]);
+  }
+  arena_free(&arena);
+}
+
+// A line run groups only lines that share a marker. Four slashes are a plain `//` comment.
+static void test_groups_line_runs_by_marker(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "/// a\n/// b\n// c\n//// d\n//! e\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 3);
+  TEST_CHECK(strcmp(blocks.items[0].opener, "///") == 0);
+  TEST_CHECK(blocks.items[0].end == strlen("/// a\n/// b"));
+  TEST_CHECK(strcmp(blocks.items[1].opener, "//") == 0);
+  TEST_CHECK(blocks.items[1].end == strlen("/// a\n/// b\n// c\n//// d"));
+  TEST_CHECK(strcmp(blocks.items[2].opener, "//!") == 0);
+  arena_free(&arena);
+}
+
+// A block with no letter, digit, or non-ASCII byte is omitted, so a banner is copied unchanged.
+static void test_groups_skip_blocks_without_prose(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "/**/\n/*****************/\n// ----\n// ====\n/* é */\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 1);
+  TEST_CHECK(blocks.items[0].start == strlen("/**/\n/*****************/\n// ----\n// ====\n"));
+  arena_free(&arena);
+}
+
 // Continuation stars classify a block as starred; their absence classifies it as hanging.
 static void test_classifies_starred_and_hanging(void) {
   struct Arena arena;
@@ -56,7 +115,8 @@ static void test_classifies_starred_and_hanging(void) {
   struct CommentBlockList starred = group(&arena, "/**\n * foo\n */\n");
   TEST_CHECK(starred.count == 1);
   TEST_CHECK(starred.items[0].shape == COMMENT_SHAPE_STARRED);
-  TEST_CHECK(starred.items[0].is_doxygen_opener);
+  TEST_CHECK(starred.items[0].is_doxygen);
+  TEST_CHECK(strcmp(starred.items[0].opener, "/**") == 0);
   TEST_CHECK(starred.items[0].is_opener_empty);
 
   struct CommentBlockList hanging = group(&arena, "/* foo\n   bar */\n");
@@ -132,6 +192,34 @@ static void test_emit_hanging_trails_closer(void) {
   arena_free(&arena);
 }
 
+// Emit writes each line of a line block back with the block's own marker.
+static void test_emit_restores_line_marker(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "//! one\n//!\n//! two\n";
+  struct BodyLineList lines = extract(&arena, source);
+  struct CommentBlockList blocks = group(&arena, source);
+  struct StringBuffer out;
+  string_buffer_init(&out);
+  TEST_CHECK(comment_emit(&out, source, &blocks.items[0], &lines) == 0);
+  TEST_CHECK(out.data != NULL && strcmp(out.data, "//! one\n//!\n//! two") == 0);
+  string_buffer_free(&out);
+  arena_free(&arena);
+}
+
+// Prefix widths count the recorded marker plus one space.
+static void test_prefix_columns_follow_marker(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  struct CommentBlockList line = group(&arena, "  /// a\n");
+  TEST_CHECK(comment_prefix_columns(&line.items[0]) == 6);
+  TEST_CHECK(comment_first_prefix_columns(&line.items[0]) == 6);
+  struct CommentBlockList bang = group(&arena, "/*! a\n * b\n */\n");
+  TEST_CHECK(comment_prefix_columns(&bang.items[0]) == 3);
+  TEST_CHECK(comment_first_prefix_columns(&bang.items[0]) == 4);
+  arena_free(&arena);
+}
+
 // Only a starred block with one body line on the opener puts its closer on that line.
 static void test_has_opener_closer_for_one_line_starred(void) {
   struct Arena arena;
@@ -174,11 +262,16 @@ static void test_emit_omits_first_line_indent(void) {
 TEST_LIST = {
     {"groups line runs and skips trailing", test_groups_line_runs_and_skips_trailing},
     {"groups skip spliced line comment", test_groups_skip_spliced_line_comment},
+    {"records opener marker", test_records_opener_marker},
+    {"groups line runs by marker", test_groups_line_runs_by_marker},
+    {"groups skip blocks without prose", test_groups_skip_blocks_without_prose},
     {"classifies starred and hanging", test_classifies_starred_and_hanging},
     {"extract drops hanging closer line", test_extract_drops_hanging_closer_line},
     {"extract keeps hanging sample indent", test_extract_keeps_hanging_sample_indent},
     {"extract drops starred closer line", test_extract_drops_starred_closer_line},
     {"emit hanging trails closer", test_emit_hanging_trails_closer},
+    {"emit restores line marker", test_emit_restores_line_marker},
+    {"prefix columns follow marker", test_prefix_columns_follow_marker},
     {"has opener closer for one line starred", test_has_opener_closer_for_one_line_starred},
     {"emit omits first line indent", test_emit_omits_first_line_indent},
     {NULL, NULL},

@@ -85,6 +85,11 @@ Run these commands for help:
 - `cwrap --version` (or `-V`): Print the version.
 - `cwrap --help` (or `-h`): Print usage and the available options.
 
+## Wrapping behavior
+
+- Prose in `//`, `///`, `//!`, `/* */`, `/** */`, and `/*! */` comments is refilled to the column. Each comment keeps its opener, and consecutive line comments merge only when they share one.
+- Trailing comments, list items, indented samples, Markdown fences, and comments with no letters or digits, such as banners, are left unchanged.
+
 ## Contributing
 
 ### Prerequisites

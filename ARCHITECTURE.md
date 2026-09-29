@@ -39,11 +39,11 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 `rewrite_source` ([src/domain/rewrite.h](src/domain/rewrite.h)) owns the domain pipeline for one source buffer:
 
 1. **Lex** (`lex_comment_spans`): A character state machine records every comment span and ignores strings and character literals. A shared transition keeps LF and CRLF line splices inside the state they continue, including a `//` comment. A comment that follows code or the closer of another comment on its line is recorded as trailing.
-2. **Group** (`comment_group`): Consecutive same-indent `//` lines become one block. Trailing comments are omitted. So is a `//` comment continued by a backslash line splice: its spliced physical lines carry no `//` marker for a refill to restore, so it is copied unchanged and ends the run before it. A slash-star block is starred when a continuation `*` sits at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker.
+2. **Group** (`comment_group`): Each block records its exact opener marker: `//`, `///`, or `//!` for a line comment, and `/*`, `/**`, or `/*!` for a block comment. The four markers other than `//` and `/*` make it a Doxygen block. Consecutive same-indent line comments with the same marker become one block. Trailing comments are omitted. So is a `//` comment continued by a backslash line splice: its spliced physical lines carry no `//` marker for a refill to restore, so it is copied unchanged and ends the run before it. So is a block with no letter, digit, or non-ASCII byte, such as `/**/` or a row of stars, which keeps its exact bytes. A slash-star block is starred when a continuation `*` sits at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker.
 3. **Extract** (`comment_extract_body`): Decoration is stripped (`*/` before `*`) and each payload line is classified. A closer-only last line is dropped. Hanging indent is stripped; extra indent that is not a tag continuation is an indented sample.
 4. **Align** (`doxygen_align_parameters`): `@param` descriptions share a column.
 5. **Fill** (`fill_body_lines`): Prose paragraphs are greedily filled with [STYLE.md](STYLE.md) atoms. A starred body that collapses onto the opener line is filled again with room for the closer that then trails it.
-6. **Emit** (`comment_emit`): Prefixes and closers are restored with the block's original LF or CRLF convention.
+6. **Emit** (`comment_emit`): The recorded opener, prefixes, and closers are restored with the block's original LF or CRLF convention.
 7. **Splice**: Non-comment bytes are copied unchanged.
 
 ## Modules
