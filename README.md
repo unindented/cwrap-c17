@@ -192,7 +192,7 @@ The `multi-relwithdebinfo` test preset exercises the same CMake configuration us
 Workflow presets run the complete configure, build, and test sequences used by CI:
 
 - `cmake --workflow --preset ci-debug`: `Debug` build, linting, and all ASan/UBSan tests.
-- `cmake --workflow --preset ci-release`: `Release` build.
+- `cmake --workflow --preset ci-release`: `RelWithDebInfo` build.
 - `cmake --workflow --preset ci-multi`: `Debug` and `RelWithDebInfo` builds and tests under the `Ninja Multi-Config` generator.
 
 To run the same Linux workflows from a machine with Podman, build the pinned Ubuntu image:
