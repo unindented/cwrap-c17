@@ -272,7 +272,8 @@ static void test_emit_restores_line_marker(void) {
   arena_free(&arena);
 }
 
-// Prefix widths count the recorded marker plus one space.
+// Prefix widths count the recorded marker plus one space, except a starred continuation, which is
+// ` * `.
 static void test_prefix_columns_follow_marker(void) {
   struct Arena arena;
   arena_init(&arena);
@@ -282,6 +283,9 @@ static void test_prefix_columns_follow_marker(void) {
   struct CommentBlockList bang = group(&arena, "/*! a\n * b\n */\n");
   TEST_CHECK(comment_prefix_columns(&bang.items[0]) == 3);
   TEST_CHECK(comment_first_prefix_columns(&bang.items[0]) == 4);
+  struct CommentBlockList hanging = group(&arena, "/** a\n    b */\n");
+  TEST_CHECK(comment_prefix_columns(&hanging.items[0]) == 4);
+  TEST_CHECK(comment_first_prefix_columns(&hanging.items[0]) == 4);
   arena_free(&arena);
 }
 

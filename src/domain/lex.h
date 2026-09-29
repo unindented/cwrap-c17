@@ -24,15 +24,15 @@ struct CommentSpan {
   size_t start;
 
   /** Byte offset immediately after the last byte of the comment. A line comment ends at the newline
-     (exclusive) or at the end of the file, and a backslash line splice carries it past a newline. A
-     block comment ends after its closer. */
+      (exclusive) or at the end of the file, and a backslash line splice carries it past a newline.
+      A block comment ends after its closer. */
   size_t end;
 
   /** Display column of the first `/` of the opener, measured from the start of its line. */
   size_t opener_column;
 
   /** Whether non-whitespace code or the closer of another comment appears on the opener's line
-     before the comment. Trailing comments are recorded so a rewriter can copy them unchanged. */
+      before the comment. Trailing comments are recorded so a rewriter can copy them unchanged. */
   bool is_trailing;
 };
 

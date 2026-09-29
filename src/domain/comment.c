@@ -450,7 +450,9 @@ int comment_emit(struct StringBuffer* buffer,
     if (lines->items[i].text_len == 0) {
       continue;
     }
-    if (string_buffer_append_len(buffer, indent, indent_len) != 0 || emit_indent(buffer, 3) != 0 ||
+    // A continuation starts in the column after the opener and its space, which extraction strips.
+    if (string_buffer_append_len(buffer, indent, indent_len) != 0 ||
+        emit_indent(buffer, strlen(block->opener) + 1) != 0 ||
         string_buffer_append_len(buffer, lines->items[i].text, lines->items[i].text_len) != 0) {
       return -1;
     }
@@ -466,7 +468,8 @@ bool comment_has_opener_closer(const struct CommentBlock* block, const struct Bo
 }
 
 size_t comment_prefix_columns(const struct CommentBlock* block) {
-  const size_t marker_columns = block->shape == COMMENT_SHAPE_LINE ? strlen(block->opener) + 1 : 3;
+  const size_t marker_columns =
+      block->shape == COMMENT_SHAPE_STARRED ? strlen(" * ") : strlen(block->opener) + 1;
   return block->indent_columns + marker_columns;
 }
 

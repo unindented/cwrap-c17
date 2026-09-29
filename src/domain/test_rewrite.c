@@ -188,14 +188,15 @@ static void test_preserves_crlf_in_block_shapes(void) {
   free(out);
 }
 
-// An inline Doxygen opener consumes four columns when deciding the first break.
+// An inline Doxygen opener consumes four columns when deciding the first break, and a hanging
+// continuation lines up under the text after it.
 static void test_counts_inline_doxygen_opener_width(void) {
   char* out = rewrite("/** a b */\n", 9);
   TEST_ASSERT(out != NULL);
   if (out == NULL) {
     return;
   }
-  TEST_CHECK(strcmp(out, "/** a\n   b */\n") == 0);
+  TEST_CHECK(strcmp(out, "/** a\n    b */\n") == 0);
   free(out);
 }
 

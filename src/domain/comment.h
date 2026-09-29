@@ -14,7 +14,7 @@ enum CommentShape {
   COMMENT_SHAPE_LINE,
 
   /** Continuation lines carry a leading `*`. The closer sits on its own last line, except when the
-     refilled prose leaves no continuation line, where it trails the opener. */
+      refilled prose leaves no continuation line, where it trails the opener. */
   COMMENT_SHAPE_STARRED,
 
   /** Continuations hang under the opener. The closer trails the last prose line. */
@@ -39,14 +39,14 @@ struct CommentBlock {
   bool has_crlf_newlines;
 
   /** Opener marker the block is emitted with, in static storage: `//`, `///`, `//!`, or slash-star
-     followed by nothing, a `*`, or a `!`. A line block repeats it on every line. */
+      followed by nothing, a `*`, or a `!`. A line block repeats it on every line. */
   const char* opener;
 
   /** Whether the opener line carries no prose, so it stays a marker-only line. */
   bool is_opener_empty;
 
   /** Whether `opener` is a Doxygen marker, any but `//` and a bare slash-star, so body lines can
-     carry Doxygen commands. */
+      carry Doxygen commands. */
   bool is_doxygen;
 };
 
@@ -65,14 +65,14 @@ enum BodyLineKind {
   BODY_LINE_PROSE,
 
   /** A line of a Doxygen block that starts with a command such as `@brief` or `\param`. It starts a
-     paragraph whose later prose lines are its description. */
+      paragraph whose later prose lines are its description. */
   BODY_LINE_TAG,
 
   /** A list item, left untouched. */
   BODY_LINE_LIST,
 
   /** A fenced or indented sample, or a Doxygen `@code` or `@verbatim` region including its fence
-     lines, left untouched. */
+      lines, left untouched. */
   BODY_LINE_CODE,
 
   /** A decorative run of punctuation, left untouched. */
@@ -189,16 +189,17 @@ bool comment_has_opener_closer(const struct CommentBlock* block, const struct Bo
  * @brief Returns the display-column width of the continuation prefix for `block`.
  *
  * @param block Block whose continuation prefix is measured. Must not be `NULL`.
- * @return Columns occupied by indent plus the line marker and a space, ` * `, or hanging spaces.
+ * @return Columns occupied by indent plus the line marker and a space, ` * `, or hanging spaces as
+ *         wide as the opener marker and a space.
  */
 size_t comment_prefix_columns(const struct CommentBlock* block) __attribute__((nonnull(1)));
 
 /**
  * @brief Returns the display-column width before the first body line for `block`.
  *
- * An inline opener occupies its marker plus one space, which is one more column than a continuation
- * prefix for a three-byte slash-star marker. A marker-only opener puts the first body line on a
- * continuation and therefore uses the continuation width.
+ * An inline opener occupies its marker plus one space, which is one more column than a starred
+ * continuation prefix for a three-byte slash-star marker. A marker-only opener puts the first body
+ * line on a continuation and therefore uses the continuation width.
  *
  * @param block Block whose first body-line prefix is measured. Must not be `NULL`.
  * @return Columns occupied before the first body line.

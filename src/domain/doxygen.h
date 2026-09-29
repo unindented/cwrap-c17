@@ -19,7 +19,7 @@ struct DoxygenTag {
   size_t keyword_len;
 
   /** Name that a `param` or `retval` command documents, borrowed from the parsed text, or
-     `NULL`. */
+      `NULL`. */
   const char* name;
 
   /** Number of bytes in `name`. */
