@@ -108,7 +108,7 @@ This guide is an amalgamation of ideas and conventions from the following resour
 
 - Bound every buffer and loop. Prefer an explicit, named constant over a bare literal.
 - Document the limit where it is defined. Enforce it with a `_Static_assert` or a runtime check where practical.
-- On overflow, fail fast with a diagnostic that names the limit and the offending value, with the value last so a long value cannot truncate the limit off the end (`exceeds max readable size (18446744073709551614 bytes) at 20000000000000000000 bytes`).
+- On overflow, fail fast with a diagnostic that names the limit and the offending value, with the value last so a long value cannot truncate the limit off the end (`option '--width' exceeds max wrapping column (10000) at 10001`).
 
 ## Errors and diagnostics
 
