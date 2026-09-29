@@ -2,7 +2,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "core/error.h"
@@ -35,6 +34,17 @@ static char* join_payloads(const struct BodyLineList* lines,
                            size_t end,
                            struct Arena* arena,
                            size_t* joined_len_out) __attribute__((nonnull(1, 4, 5)));
+
+/**
+ * @brief Reports whether `join_payloads` puts a space before `lines[index]`.
+ *
+ * @param lines Line list. Must not be `NULL`.
+ * @param start First joined line index.
+ * @param index Line index to test. Must be less than `lines->count`.
+ * @return `true` when both this line and the one before it in the join have payload.
+ */
+static bool has_join_space(const struct BodyLineList* lines, size_t start, size_t index)
+    __attribute__((nonnull(1)));
 
 /**
  * @brief Appends one body line to a growable temporary list.
@@ -207,35 +217,31 @@ static char* join_payloads(const struct BodyLineList* lines,
                            size_t end,
                            struct Arena* arena,
                            size_t* joined_len_out) {
-  struct StringBuffer buffer;
-  string_buffer_init(&buffer);
-  char* copy = NULL;
-  char* stolen = NULL;
   size_t joined_len = 0;
   for (size_t i = start; i < end; i++) {
-    if (i > start && lines->items[i - 1].text_len > 0 && lines->items[i].text_len > 0) {
-      if (string_buffer_append_char(&buffer, ' ') != 0) {
-        goto cleanup;
-      }
-    }
-    if (string_buffer_append_len(&buffer, lines->items[i].text, lines->items[i].text_len) != 0) {
-      goto cleanup;
-    }
+    joined_len += (has_join_space(lines, start, i) ? 1 : 0) + lines->items[i].text_len;
   }
-  joined_len = buffer.len;
-  stolen = string_buffer_steal(&buffer);
-  if (stolen == NULL) {
-    goto cleanup;
-  }
-  copy = arena_strndup(arena, stolen, joined_len);
-  if (copy != NULL) {
-    *joined_len_out = joined_len;
+  char* joined = arena_alloc(arena, joined_len + 1);
+  if (joined == NULL) {
+    return NULL;
   }
 
-cleanup:
-  free(stolen);
-  string_buffer_free(&buffer);
-  return copy;
+  size_t offset = 0;
+  for (size_t i = start; i < end; i++) {
+    if (has_join_space(lines, start, i)) {
+      joined[offset] = ' ';
+      offset++;
+    }
+    memcpy(joined + offset, lines->items[i].text, lines->items[i].text_len);
+    offset += lines->items[i].text_len;
+  }
+  joined[offset] = '\0';
+  *joined_len_out = joined_len;
+  return joined;
+}
+
+static bool has_join_space(const struct BodyLineList* lines, size_t start, size_t index) {
+  return index > start && lines->items[index - 1].text_len > 0 && lines->items[index].text_len > 0;
 }
 
 static int append_line(struct BodyLineList* lines,

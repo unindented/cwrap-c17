@@ -7,7 +7,6 @@
 #include "domain/atom.h"
 #include "domain/comment.h"
 #include "shared/arena.h"
-#include "shared/string_buffer.h"
 
 /**
  * @brief Returns the byte length of an option such as `[in]` or `{.c}` at `text[index]`.
@@ -181,43 +180,31 @@ static int align_named_line(struct BodyLine* line,
                             struct Arena* arena,
                             char* err,
                             size_t err_len) {
-  struct StringBuffer buffer;
-  string_buffer_init(&buffer);
-  int rc = -1;
-  char* copy = NULL;
   const bool has_description = tag->description_offset < line->text_len;
-
-  if (string_buffer_append_len(&buffer, line->text, tag->keyword_len) != 0 ||
-      string_buffer_append_char(&buffer, ' ') != 0 ||
-      string_buffer_append_len(&buffer, tag->name, tag->name_len) != 0) {
-    goto cleanup;
-  }
+  const size_t description_len = has_description ? line->text_len - tag->description_offset : 0;
   // The fill joins a continuation with one space, which stands in for the separator here.
-  if (has_description || is_continued) {
-    const size_t name_columns = atom_column_width(tag->name, tag->name_len);
-    for (size_t padding = name_columns; padding < name_columns_max; padding++) {
-      if (string_buffer_append_char(&buffer, ' ') != 0) {
-        goto cleanup;
-      }
-    }
+  const size_t name_columns = atom_column_width(tag->name, tag->name_len);
+  const size_t padding_len = (has_description || is_continued) && name_columns < name_columns_max
+                                 ? name_columns_max - name_columns
+                                 : 0;
+  const size_t space_len = padding_len + (has_description ? 1 : 0);
+  const size_t text_len = tag->keyword_len + 1 + tag->name_len + space_len + description_len;
+  char* text = arena_alloc(arena, text_len + 1);
+  if (text == NULL) {
+    return error_report(err, err_len, "out of memory");
   }
-  if (has_description &&
-      (string_buffer_append_char(&buffer, ' ') != 0 ||
-       string_buffer_append_len(&buffer, line->text + tag->description_offset,
-                                line->text_len - tag->description_offset) != 0)) {
-    goto cleanup;
-  }
-  copy = arena_strndup(arena, buffer.data == NULL ? "" : buffer.data, buffer.len);
-  if (copy == NULL) {
-    goto cleanup;
-  }
-  line->text = copy;
-  line->text_len = buffer.len;
-  rc = 0;
 
-cleanup:
-  string_buffer_free(&buffer);
-  return rc == 0 ? 0 : error_report(err, err_len, "out of memory");
+  // The line is the keyword, a space, the name, then spaces up to the description.
+  memcpy(text, line->text, tag->keyword_len);
+  text[tag->keyword_len] = ' ';
+  char* const name = text + tag->keyword_len + 1;
+  memcpy(name, tag->name, tag->name_len);
+  memset(name + tag->name_len, ' ', space_len);
+  memcpy(name + tag->name_len + space_len, line->text + tag->description_offset, description_len);
+  text[text_len] = '\0';
+  line->text = text;
+  line->text_len = text_len;
+  return 0;
 }
 
 static bool is_command_letter(char c) {
