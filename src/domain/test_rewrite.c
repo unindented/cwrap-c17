@@ -199,15 +199,15 @@ static void test_counts_inline_doxygen_opener_width(void) {
   free(out);
 }
 
-// A word beginning with a tag spelling is ordinary prose unless the tag has a token boundary.
-static void test_tag_prefix_word_stays_prose(void) {
-  const char* source = "/**\n * first line\n * @briefly second line\n */\n";
+// A tag spelling in a plain slash-star block is ordinary prose and joins the line above.
+static void test_tag_in_plain_block_stays_prose(void) {
+  const char* source = "/*\n * first line\n * @brief second line\n */\n";
   char* out = rewrite(source, 100);
   TEST_ASSERT(out != NULL);
   if (out == NULL) {
     return;
   }
-  TEST_CHECK(strcmp(out, "/**\n * first line @briefly second line\n */\n") == 0);
+  TEST_CHECK(strcmp(out, "/*\n * first line @brief second line\n */\n") == 0);
   free(out);
 }
 
@@ -448,7 +448,7 @@ TEST_LIST = {
     {"preserves crlf line endings", test_preserves_crlf_line_endings},
     {"preserves crlf in block shapes", test_preserves_crlf_in_block_shapes},
     {"counts inline doxygen opener width", test_counts_inline_doxygen_opener_width},
-    {"tag prefix word stays prose", test_tag_prefix_word_stays_prose},
+    {"tag in plain block stays prose", test_tag_in_plain_block_stays_prose},
     {"aligns direction parameters end to end", test_aligns_direction_parameters_end_to_end},
     {"reindents wrapped line comments", test_reindents_wrapped_line_comments},
     {"hanging blank line has no trailing spaces", test_hanging_blank_line_has_no_trailing_spaces},

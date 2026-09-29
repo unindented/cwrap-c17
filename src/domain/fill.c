@@ -16,7 +16,7 @@
  * @brief Reports whether `kind` may join a wrapable paragraph.
  *
  * @param kind Line kind.
- * @return `true` for prose and for tag continuations that are still prose.
+ * @return `true` for prose, which includes the continuation lines of a tag, or `false` otherwise.
  */
 static bool is_fillable(enum BodyLineKind kind);
 
@@ -58,8 +58,7 @@ static int append_line(struct BodyLineList* lines,
  * @brief Appends one copied line to a growable temporary body-line list.
  *
  * @param lines    List that receives the line. Must not be `NULL`.
- * @param capacity Current capacity of `lines`; receives any grown capacity. Must not be
- *                     `NULL`.
+ * @param capacity Current capacity of `lines`; receives any grown capacity. Must not be `NULL`.
  * @param kind     Kind assigned to the appended line.
  * @param line     Buffer whose bytes are copied. Must not be `NULL`.
  * @param arena    Arena that owns the copied text and any grown array. Must not be `NULL`.
@@ -80,7 +79,7 @@ static int append_filled_line(struct BodyLineList* lines,
  *
  * @param lines                Line list that receives the filled paragraph. Must not be `NULL`.
  * @param capacity             Current capacity of `lines`; receives any grown capacity. Must not be
- *                           `NULL`.
+ *                             `NULL`.
  * @param joined               Joined paragraph text. Must not be `NULL`.
  * @param joined_len           Number of bytes in `joined`.
  * @param frozen_prefix_len    Bytes at the start of `joined` that must stay on the first line.
@@ -88,8 +87,8 @@ static int append_filled_line(struct BodyLineList* lines,
  * @param prefix_columns       Continuation prefix columns.
  * @param width                Wrapping column.
  * @param has_trailing_closer  Whether to reserve a trailing closer on the last line.
- * @param arena                Arena that owns the new line texts and a temporary array. Must not
- *                              be `NULL`.
+ * @param arena                Arena that owns the new line texts and a temporary array. Must not be
+ *                             `NULL`.
  * @param err                  Diagnostic buffer. May be `NULL` only when `err_len` is 0.
  * @param err_len              Size of `err` in bytes.
  * @return `0` on success, or `-1` on allocation failure.
@@ -108,6 +107,22 @@ static int append_filled_paragraph(struct BodyLineList* lines,
                                    size_t err_len) __attribute__((nonnull(1, 2, 3, 10)));
 
 /**
+ * @brief Merges each atom that would open a line of another kind into the atom before it.
+ *
+ * A continuation line that started with a Doxygen command or a list marker would read back as a new
+ * tag or list item and stop the paragraph from refilling, so such an atom travels with the word
+ * before it. An atom inside the frozen tag prefix takes nothing, because the atom after the prefix
+ * always stays on the first line.
+ *
+ * @param atoms             Atoms of `joined`, merged in place. Must not be `NULL`.
+ * @param joined            Terminated paragraph text the atoms alias. Must not be `NULL`.
+ * @param frozen_prefix_len Bytes at the start of `joined` that stay on the first line.
+ */
+static void glue_line_opener_atoms(struct AtomList* atoms,
+                                   const char* joined,
+                                   size_t frozen_prefix_len) __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Reports whether adding columns would exceed the wrapping width.
  *
  * @param prefix_columns Columns occupied before the payload.
@@ -124,10 +139,11 @@ static bool is_width_exceeded(size_t prefix_columns,
 /**
  * @brief Returns the length of a frozen Doxygen tag prefix at the start of `text`.
  *
- * @param text Terminated payload. Must not be `NULL`.
- * @return Byte length of `@tag` plus a parameter name and following spaces, or 0.
+ * @param text     Payload. Must not be `NULL`.
+ * @param text_len Length of `text`.
+ * @return Byte length of the tag keyword plus any documented name and the following spaces, or 0.
  */
-static size_t tag_prefix_len(const char* text) __attribute__((nonnull(1)));
+static size_t tag_prefix_len(const char* text, size_t text_len) __attribute__((nonnull(1)));
 
 /**
  * @brief Writes `count` spaces into `buffer`.
@@ -168,7 +184,7 @@ int fill_body_lines(struct BodyLineList* lines,
     if (joined == NULL) {
       return error_report(err, err_len, "out of memory");
     }
-    const size_t frozen_prefix_len = is_tag_start ? tag_prefix_len(joined) : 0;
+    const size_t frozen_prefix_len = is_tag_start ? tag_prefix_len(joined, joined_len) : 0;
     if (append_filled_paragraph(&rebuilt, &rebuilt_capacity, joined, joined_len, frozen_prefix_len,
                                 first_prefix_columns, prefix_columns, width, has_trailing_closer,
                                 arena, err, err_len) != 0) {
@@ -281,6 +297,7 @@ static int append_filled_paragraph(struct BodyLineList* lines,
   if (atom_split(joined, joined_len, arena, &atoms) != 0) {
     return error_report(err, err_len, "out of memory");
   }
+  glue_line_opener_atoms(&atoms, joined, frozen_prefix_len);
 
   const size_t closer_columns = has_trailing_closer ? 3 : 0;
 
@@ -365,6 +382,30 @@ cleanup:
   return rc;
 }
 
+static void glue_line_opener_atoms(struct AtomList* atoms,
+                                   const char* joined,
+                                   size_t frozen_prefix_len) {
+  size_t kept = 0;
+  for (size_t i = 0; i < atoms->count; i++) {
+    const struct Atom atom = atoms->items[i];
+    struct DoxygenTag tag;
+    // Each atom is followed in `joined` by the space or end that follows it on an emitted line.
+    const bool is_line_opener =
+        doxygen_has_tag(atom.text, atom.text_len, &tag) || comment_is_list_line(atom.text);
+    if (kept > 0 && is_line_opener) {
+      struct Atom* previous = &atoms->items[kept - 1];
+      if ((size_t)(previous->text - joined) + previous->text_len > frozen_prefix_len) {
+        previous->text_len = (size_t)(atom.text + atom.text_len - previous->text);
+        previous->columns = atom_column_width(previous->text, previous->text_len);
+        continue;
+      }
+    }
+    atoms->items[kept] = atom;
+    kept++;
+  }
+  atoms->count = kept;
+}
+
 static bool is_width_exceeded(size_t prefix_columns,
                               size_t used_columns,
                               size_t extra_columns,
@@ -379,9 +420,9 @@ static bool is_width_exceeded(size_t prefix_columns,
   return extra_columns > payload_columns - used_columns;
 }
 
-static size_t tag_prefix_len(const char* text) {
+static size_t tag_prefix_len(const char* text, size_t text_len) {
   struct DoxygenTag tag;
-  return doxygen_has_tag(text, &tag) ? tag.description_offset : 0;
+  return doxygen_has_tag(text, text_len, &tag) ? tag.description_offset : 0;
 }
 
 static int append_spaces(struct StringBuffer* buffer, size_t count) {

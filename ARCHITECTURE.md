@@ -40,9 +40,9 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 1. **Lex** (`lex_comment_spans`): A character state machine records every comment span and ignores strings and character literals. A shared transition keeps LF and CRLF line splices inside the state they continue, including a `//` comment. A comment that follows code or the closer of another comment on its line is recorded as trailing.
 2. **Group** (`comment_group`): Each block records its exact opener marker: `//`, `///`, or `//!` for a line comment, and `/*`, `/**`, or `/*!` for a block comment. The four markers other than `//` and `/*` make it a Doxygen block. Consecutive same-indent line comments with the same marker become one block. Trailing comments are omitted. So is a `//` comment continued by a backslash line splice: its spliced physical lines carry no `//` marker for a refill to restore, so it is copied unchanged and ends the run before it. So is a block with no letter, digit, or non-ASCII byte, such as `/**/` or a row of stars, which keeps its exact bytes. A slash-star block is starred when a continuation `*` sits at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker.
-3. **Extract** (`comment_extract_body`): Decoration is stripped (`*/` before `*`) and each payload line is classified. A closer-only last line is dropped. Hanging indent is stripped; extra indent that is not a tag continuation is an indented sample.
-4. **Align** (`doxygen_align_parameters`): `@param` descriptions share a column.
-5. **Fill** (`fill_body_lines`): Prose paragraphs are greedily filled with [STYLE.md](STYLE.md) atoms. A starred body that collapses onto the opener line is filled again with room for the closer that then trails it.
+3. **Extract** (`comment_extract_body`): Decoration is stripped (`*/` before `*`) and each payload line is classified. A closer-only last line is dropped. Hanging indent is stripped; extra indent that is not a tag continuation is an indented sample. In a Doxygen block, a line that starts with any `@word` or `\word` command is a tag that starts a paragraph, and a prose line after it, indented at any depth, continues it with the indent removed. `@code` through `@endcode` and `@verbatim` through `@endverbatim`, in either spelling, are left untouched like a Markdown fence.
+4. **Align** (`doxygen_align_parameters`): `@param` descriptions share a column, and so do `@retval` descriptions.
+5. **Fill** (`fill_body_lines`): Prose paragraphs are greedily filled with [STYLE.md](STYLE.md) atoms. A tag keeps its keyword, and a `@param` or `@retval` its name, on the first line, and its wrapped description hangs under the first description word. A Doxygen command or list marker inside a paragraph travels with the word before it. A starred body that collapses onto the opener line is filled again with room for the closer that then trails it.
 6. **Emit** (`comment_emit`): The recorded opener, prefixes, and closers are restored with the block's original LF or CRLF convention.
 7. **Splice**: Non-comment bytes are copied unchanged.
 
@@ -54,7 +54,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 - [comment](src/domain/comment.h): Groups comment spans into blocks, extracts classified body lines, and reconstructs the selected comment shape.
 - [atom](src/domain/atom.h): Measures Unicode 16.0 display-column width and splits prose into unbreakable wrapping atoms.
 - [fill](src/domain/fill.h): Greedily fills prose paragraphs while preserving samples, lists, tags, and hanging indentation.
-- [doxygen](src/domain/doxygen.h): Aligns `@param` descriptions and their continuation lines.
+- [doxygen](src/domain/doxygen.h): Parses a Doxygen command at the start of a payload and aligns `@param` and `@retval` descriptions.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer and splices rewritten comments between unchanged source ranges.
 
 ### Application (`src/app`)
@@ -74,7 +74,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 ## Fixed-point invariant
 
-Rewrapping is idempotent: a second pass over the output of a first must change nothing, and `--check` must agree. This is what lets `--check` serve as a CI gate, since a shape `comment_emit` cannot reproduce from its own output would report a rewrap for a file `--in-place` had just written. The constraint falls on the emitter: every closer, prefix, and indent it writes has to re-parse to the same block shape. A starred block whose refilled prose fits on the opener line therefore trails its closer rather than orphaning it on a line of its own, because a lone closer would re-parse as a line to join.
+Rewrapping is idempotent: a second pass over the output of a first must change nothing, and `--check` must agree. This is what lets `--check` serve as a CI gate, since a shape `comment_emit` cannot reproduce from its own output would report a rewrap for a file `--in-place` had just written. The constraint falls on the emitter: every closer, prefix, and indent it writes has to re-parse to the same block shape. A starred block whose refilled prose fits on the opener line therefore trails its closer rather than orphaning it on a line of its own, because a lone closer would re-parse as a line to join. A wrapped tag description re-parses as that tag's continuation whatever its indent, so it refills at any width. No refilled continuation line starts with a Doxygen command or a list marker, which would re-parse as a new tag or list item.
 
 ## Cross-cutting conventions
 

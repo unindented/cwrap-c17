@@ -10,11 +10,14 @@ struct BodyLineList;
 /**
  * @brief Refills wrapable runs in `lines` to `width` using STYLE.md atoms.
  *
- * Prose paragraphs are joined and greedily filled. A Doxygen tag line starts a new paragraph and
- * keeps the tag on its first line. A wrapped tag description indents to the description column.
- * List items, fenced or indented samples, and decorative lines are left untouched. When
- * `has_trailing_closer` is true, the last line of a paragraph reserves three columns for a trailing
- * closer.
+ * Prose paragraphs are joined and greedily filled. A Doxygen tag line starts a new paragraph that
+ * its continuation lines join, and it keeps the tag keyword and any documented name on its first
+ * line. A wrapped tag description hangs under the first description word, so an aligned `@param` or
+ * `@retval` continues at the shared description column and any other tag under the first word after
+ * its keyword. A Doxygen command or list marker inside a paragraph travels with the word before it,
+ * so no continuation line reads back as a tag or list item. List items, fenced or indented samples,
+ * and decorative lines are left untouched. When `has_trailing_closer` is true, the last line of a
+ * paragraph reserves three columns for a trailing closer.
  *
  * @param lines                Body lines to refill in place. Must not be `NULL`.
  * @param first_prefix_columns Display columns before the first body line.
@@ -22,8 +25,8 @@ struct BodyLineList;
  * @param width                Wrapping column, inclusive.
  * @param has_trailing_closer  Whether to reserve a closer that trails the last line.
  * @param arena                Arena that owns replacement line texts. Must not be `NULL`.
- * @param err                  Receives a diagnostic on failure. May be `NULL` only when
- *                              `err_len` is 0.
+ * @param err                  Receives a diagnostic on failure. May be `NULL` only when `err_len`
+ *                             is 0.
  * @param err_len              Size of `err` in bytes.
  * @return `0` on success, or `-1` on allocation failure.
  */

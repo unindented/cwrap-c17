@@ -61,16 +61,18 @@ struct CommentBlockList {
 
 /** Kind of one decoration-stripped body line. */
 enum BodyLineKind {
-  /** Ordinary prose that may be joined and refilled. */
+  /** Ordinary prose that may be joined and refilled, including a tag's continuation lines. */
   BODY_LINE_PROSE,
 
-  /** A Doxygen tag line (`@brief`, `@param`, `@return`) that starts a new unit. */
+  /** A line of a Doxygen block that starts with a command such as `@brief` or `\param`. It starts a
+     paragraph whose later prose lines are its description. */
   BODY_LINE_TAG,
 
   /** A list item, left untouched. */
   BODY_LINE_LIST,
 
-  /** A fenced or indented sample, left untouched. */
+  /** A fenced or indented sample, or a Doxygen `@code` or `@verbatim` region including its fence
+     lines, left untouched. */
   BODY_LINE_CODE,
 
   /** A decorative run of punctuation, left untouched. */
@@ -133,7 +135,9 @@ int comment_group(const char* source,
  *
  * The closer is stripped before any `*` decoration, so a closer-only last line is dropped for both
  * starred and hanging blocks. Hanging continuations lose only the hanging indent, so extra indent
- * that marks a sample stays on the payload.
+ * that marks a sample stays on the payload. In a Doxygen block, a line that starts with a command
+ * is a tag, `@code` through `@endcode` and `@verbatim` through `@endverbatim` are left untouched,
+ * and a prose line indented at any depth after a tag continues that tag with its indent removed.
  *
  * @param source    Source bytes containing `block`. Must not be `NULL`.
  * @param block     Block whose body is extracted. Must not be `NULL`.
@@ -200,5 +204,13 @@ size_t comment_prefix_columns(const struct CommentBlock* block) __attribute__((n
  * @return Columns occupied before the first body line.
  */
 size_t comment_first_prefix_columns(const struct CommentBlock* block) __attribute__((nonnull(1)));
+
+/**
+ * @brief Reports whether `text` is a list item marker line.
+ *
+ * @param text Terminated payload. Must not be `NULL`.
+ * @return `true` when the line starts with `- `, `* `, `+ `, or a numbered item such as `1. `.
+ */
+bool comment_is_list_line(const char* text) __attribute__((nonnull(1)));
 
 #endif

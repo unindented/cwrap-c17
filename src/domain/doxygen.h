@@ -7,56 +7,49 @@
 struct Arena;
 struct BodyLineList;
 
-/** Supported Doxygen tag at the start of a comment payload. */
-enum DoxygenTagKind {
-  /** The payload does not start with a supported tag. */
-  DOXYGEN_TAG_NONE,
-
-  /** A `@brief` tag. */
-  DOXYGEN_TAG_BRIEF,
-
-  /** A `@param` tag, optionally with a direction qualifier. */
-  DOXYGEN_TAG_PARAM,
-
-  /** A `@return` tag. */
-  DOXYGEN_TAG_RETURN,
-};
-
-/** Parsed slices and offsets for one supported Doxygen tag. */
+/** Parsed slices and offsets for one Doxygen command at the start of a payload. */
 struct DoxygenTag {
-  /** Tag kind. */
-  enum DoxygenTagKind kind;
+  /** Command word after the `@` or `\` marker, borrowed from the parsed text. */
+  const char* command;
 
-  /** Bytes from the start through the tag and any direction qualifier. */
+  /** Number of bytes in `command`. */
+  size_t command_len;
+
+  /** Bytes from the start through the command word and any bracketed or braced option. */
   size_t keyword_len;
 
-  /** Parameter name borrowed from the parsed text, or `NULL` when no parameter name is present. */
-  const char* parameter_name;
+  /** Name that a `param` or `retval` command documents, borrowed from the parsed text, or
+     `NULL`. */
+  const char* name;
 
-  /** Number of bytes in `parameter_name`. */
-  size_t parameter_name_len;
+  /** Number of bytes in `name`. */
+  size_t name_len;
 
   /** Offset where the description begins, after separating whitespace. */
   size_t description_offset;
 };
 
 /**
- * @brief Parses a supported Doxygen tag at the start of `text`.
+ * @brief Parses a Doxygen command at the start of `text`.
  *
- * Recognizes exact `@brief`, `@return`, and `@param` tags. A parameter tag may carry `[in]`,
- * `[out]`, or `[in,out]` before its name.
+ * A command is `@` or `\` followed by ASCII letters and an optional `[...]` or `{...}` option with
+ * no whitespace inside, such as `@param[in]` or `\code{.c}`. Whitespace or the end of `text` must
+ * follow it. A `param` or `retval` command also takes the next word as the name it documents.
  *
- * @param text    Terminated payload. Must not be `NULL`.
- * @param tag_out Receives the parsed tag when one is present. Must not be `NULL`.
- * @return `true` when a supported tag is present, or `false` otherwise.
+ * @param text     Payload bytes. Must hold at least `text_len` bytes. May be `NULL` only when
+ *                 `text_len` is 0.
+ * @param text_len Number of bytes in `text`.
+ * @param tag_out  Receives the parsed command when one is present. Must not be `NULL`.
+ * @return `true` when `text` starts with a command, or `false` otherwise.
  */
-bool doxygen_has_tag(const char* text, struct DoxygenTag* tag_out) __attribute__((nonnull(1, 2)));
+bool doxygen_has_tag(const char* text, size_t text_len, struct DoxygenTag* tag_out)
+    __attribute__((nonnull(3)));
 
 /**
- * @brief Aligns `@param` descriptions to the widest parameter name plus one space.
+ * @brief Aligns the descriptions of `param` and `retval` tags to the widest name plus one space.
  *
- * Continuations of a tag are indented to that tag's description column. `@return` and `@brief` keep
- * their own description columns. The function rewrites line texts in place using `arena`.
+ * Each of the two commands aligns separately, across the whole body. Other tags keep their own
+ * description columns. The function rewrites tag line texts in place using `arena`.
  *
  * @param lines   Body lines to align. Must not be `NULL`.
  * @param arena   Arena that owns replacement line texts. Must not be `NULL`.

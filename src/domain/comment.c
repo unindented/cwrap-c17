@@ -13,6 +13,30 @@
 /** Display columns per tab stop when measuring source indentation. */
 enum { TAB_WIDTH = 8 };
 
+/** Fenced region open while body lines are classified. */
+enum PayloadFence {
+  /** No fence is open. */
+  PAYLOAD_FENCE_NONE,
+
+  /** A Markdown fence of three or more backticks or tildes, closed by another. */
+  PAYLOAD_FENCE_MARKDOWN,
+
+  /** A Doxygen `@code` region, closed by `@endcode`. */
+  PAYLOAD_FENCE_CODE,
+
+  /** A Doxygen `@verbatim` region, closed by `@endverbatim`. */
+  PAYLOAD_FENCE_VERBATIM,
+};
+
+/** Classification state carried from one body line to the next. */
+struct PayloadState {
+  /** Fence open after the previous line. */
+  enum PayloadFence fence;
+
+  /** Whether the previous line is a tag or one of its continuations. */
+  bool is_in_tag;
+};
+
 /**
  * @brief Reports whether `span` is rewritten rather than copied unchanged.
  *
@@ -121,24 +145,60 @@ static int append_stripped_line(const char* source,
 /**
  * @brief Classifies a stripped payload as prose, tag, list, code, decoration, or blank.
  *
- * @param text            Terminated payload. Must not be `NULL`.
- * @param text_len        Length of `text`.
- * @param is_in_fence     Whether a fenced code block is open.
- * @param is_in_fence_out Receives the updated fence state. Must not be `NULL`.
+ * @param text       Terminated payload. Must not be `NULL`.
+ * @param text_len   Length of `text`.
+ * @param is_doxygen Whether the block recognizes Doxygen commands.
+ * @param state      Fence and tag state carried from the previous line, updated for the next one.
+ *                   Must not be `NULL`.
  * @return Line kind.
  */
 static enum BodyLineKind classify_payload(const char* text,
                                           size_t text_len,
-                                          bool is_in_fence,
-                                          bool* is_in_fence_out) __attribute__((nonnull(1, 4)));
+                                          bool is_doxygen,
+                                          struct PayloadState* state)
+    __attribute__((nonnull(1, 4)));
 
 /**
- * @brief Reports whether `text` is a list item marker line.
+ * @brief Returns the fence that the Doxygen command at the start of `text` opens.
  *
- * @param text Terminated payload. Must not be `NULL`.
- * @return `true` when the line starts with `- `, `* `, `+ `, or a numbered item.
+ * @param text     Payload bytes with leading whitespace removed. Must not be `NULL`.
+ * @param text_len Length of `text`.
+ * @return `PAYLOAD_FENCE_CODE` for `@code`, `PAYLOAD_FENCE_VERBATIM` for `@verbatim`, or
+ *         `PAYLOAD_FENCE_NONE` otherwise. The `\` spellings match as well.
  */
-static bool is_list_line(const char* text) __attribute__((nonnull(1)));
+static enum PayloadFence fence_opened_by_command(const char* text, size_t text_len)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Reports whether `text` starts with the Doxygen command that closes `fence`.
+ *
+ * @param text     Payload bytes with leading whitespace removed. Must not be `NULL`.
+ * @param text_len Length of `text`.
+ * @param fence    Open Doxygen fence.
+ * @return `true` for `@endcode` in a code fence or `@endverbatim` in a verbatim fence.
+ */
+static bool is_doxygen_fence_closer(const char* text, size_t text_len, enum PayloadFence fence)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Reports whether `text` starts with the Doxygen command `command`.
+ *
+ * @param text     Payload bytes. Must not be `NULL`.
+ * @param text_len Length of `text`.
+ * @param command  Terminated command word without its marker. Must not be `NULL`.
+ * @return `true` when the parsed command word equals `command`.
+ */
+static bool has_doxygen_command(const char* text, size_t text_len, const char* command)
+    __attribute__((nonnull(1, 3)));
+
+/**
+ * @brief Returns the number of leading spaces and tabs in `text`.
+ *
+ * @param text     Payload bytes. Must not be `NULL`.
+ * @param text_len Length of `text`.
+ * @return Byte length of the leading whitespace.
+ */
+static size_t leading_space_len(const char* text, size_t text_len) __attribute__((nonnull(1)));
 
 /**
  * @brief Reports whether `text` is a fence opener or closer.
@@ -273,8 +333,7 @@ int comment_extract_body(const char* source,
   }
 
   size_t n = 0;
-  bool is_in_fence = false;
-  bool is_in_tag = false;
+  struct PayloadState state = {.fence = PAYLOAD_FENCE_NONE, .is_in_tag = false};
   size_t line_start = block->start;
   for (size_t i = block->start; i <= block->end; i++) {
     if (i < block->end && source[i] != '\n') {
@@ -292,16 +351,13 @@ int comment_extract_body(const char* source,
       return -1;
     }
     if (is_kept) {
-      items[n].kind = classify_payload(items[n].text, items[n].text_len, is_in_fence, &is_in_fence);
-      // Extra indent after decoration is an indented sample, except when it continues a tag.
-      if (items[n].kind == BODY_LINE_PROSE && items[n].text_len > 0 &&
-          (items[n].text[0] == ' ' || items[n].text[0] == '\t') && !is_in_tag) {
-        items[n].kind = BODY_LINE_CODE;
-      }
-      if (items[n].kind == BODY_LINE_TAG) {
-        is_in_tag = true;
-      } else if (items[n].kind != BODY_LINE_PROSE) {
-        is_in_tag = false;
+      struct BodyLine* line = &items[n];
+      line->kind = classify_payload(line->text, line->text_len, block->is_doxygen, &state);
+      // Only a tag continuation is prose with an indent, which is not part of its description.
+      if (line->kind == BODY_LINE_PROSE) {
+        const size_t indent_len = leading_space_len(line->text, line->text_len);
+        line->text += indent_len;
+        line->text_len -= indent_len;
       }
       n++;
     }
@@ -419,6 +475,20 @@ size_t comment_first_prefix_columns(const struct CommentBlock* block) {
     return comment_prefix_columns(block);
   }
   return block->indent_columns + strlen(block->opener) + 1;
+}
+
+bool comment_is_list_line(const char* text) {
+  if ((text[0] == '-' || text[0] == '*' || text[0] == '+') && text[1] == ' ') {
+    return true;
+  }
+  size_t i = 0;
+  if (!ascii_is_digit((unsigned char)text[0])) {
+    return false;
+  }
+  while (ascii_is_digit((unsigned char)text[i])) {
+    i++;
+  }
+  return text[i] == '.' && text[i + 1] == ' ';
 }
 
 static bool is_span_rewritable(const char* source, const struct CommentSpan* span) {
@@ -642,47 +712,90 @@ static int append_stripped_line(const char* source,
 
 static enum BodyLineKind classify_payload(const char* text,
                                           size_t text_len,
-                                          bool is_in_fence,
-                                          bool* is_in_fence_out) {
-  *is_in_fence_out = is_in_fence;
+                                          bool is_doxygen,
+                                          struct PayloadState* state) {
+  const bool is_in_tag = state->is_in_tag;
+  state->is_in_tag = false;
   if (text_len == 0) {
     return BODY_LINE_BLANK;
   }
+  const size_t indent_len = leading_space_len(text, text_len);
+  const char* const unindented = text + indent_len;
+  const size_t unindented_len = text_len - indent_len;
+  if (state->fence == PAYLOAD_FENCE_MARKDOWN) {
+    if (is_fence_line(text)) {
+      state->fence = PAYLOAD_FENCE_NONE;
+    }
+    return BODY_LINE_CODE;
+  }
+  if (state->fence != PAYLOAD_FENCE_NONE) {
+    if (is_doxygen_fence_closer(unindented, unindented_len, state->fence)) {
+      state->fence = PAYLOAD_FENCE_NONE;
+    }
+    return BODY_LINE_CODE;
+  }
   if (is_fence_line(text)) {
-    *is_in_fence_out = !is_in_fence;
+    state->fence = PAYLOAD_FENCE_MARKDOWN;
     return BODY_LINE_CODE;
   }
-  if (is_in_fence) {
-    return BODY_LINE_CODE;
+  if (is_doxygen) {
+    state->fence = fence_opened_by_command(unindented, unindented_len);
+    if (state->fence != PAYLOAD_FENCE_NONE) {
+      return BODY_LINE_CODE;
+    }
   }
-  if (text_len >= 4 && text[0] == ' ' && text[1] == ' ' && text[2] == ' ' && text[3] == ' ') {
+  // Extra indent after decoration marks a sample, unless the line continues a tag. A continuation
+  // may sit at any depth, so a description refilled at another width still reads as one.
+  if (indent_len > 0) {
+    if (is_in_tag && !comment_is_list_line(unindented) &&
+        !is_decoration_line(unindented, unindented_len)) {
+      state->is_in_tag = true;
+      return BODY_LINE_PROSE;
+    }
     return BODY_LINE_CODE;
   }
   struct DoxygenTag tag;
-  if (doxygen_has_tag(text, &tag)) {
+  if (is_doxygen && doxygen_has_tag(text, text_len, &tag)) {
+    state->is_in_tag = true;
     return BODY_LINE_TAG;
   }
-  if (is_list_line(text)) {
+  if (comment_is_list_line(text)) {
     return BODY_LINE_LIST;
   }
   if (is_decoration_line(text, text_len)) {
     return BODY_LINE_DECORATION;
   }
+  state->is_in_tag = is_in_tag;
   return BODY_LINE_PROSE;
 }
 
-static bool is_list_line(const char* text) {
-  if ((text[0] == '-' || text[0] == '*' || text[0] == '+') && text[1] == ' ') {
-    return true;
+static enum PayloadFence fence_opened_by_command(const char* text, size_t text_len) {
+  if (has_doxygen_command(text, text_len, "code")) {
+    return PAYLOAD_FENCE_CODE;
   }
-  size_t i = 0;
-  if (!ascii_is_digit((unsigned char)text[0])) {
-    return false;
+  if (has_doxygen_command(text, text_len, "verbatim")) {
+    return PAYLOAD_FENCE_VERBATIM;
   }
-  while (ascii_is_digit((unsigned char)text[i])) {
-    i++;
+  return PAYLOAD_FENCE_NONE;
+}
+
+static bool is_doxygen_fence_closer(const char* text, size_t text_len, enum PayloadFence fence) {
+  const char* const closer = fence == PAYLOAD_FENCE_CODE ? "endcode" : "endverbatim";
+  return has_doxygen_command(text, text_len, closer);
+}
+
+static bool has_doxygen_command(const char* text, size_t text_len, const char* command) {
+  struct DoxygenTag tag;
+  return doxygen_has_tag(text, text_len, &tag) && tag.command_len == strlen(command) &&
+         memcmp(tag.command, command, tag.command_len) == 0;
+}
+
+static size_t leading_space_len(const char* text, size_t text_len) {
+  size_t len = 0;
+  while (len < text_len && (text[len] == ' ' || text[len] == '\t')) {
+    len++;
   }
-  return text[i] == '.' && text[i + 1] == ' ';
+  return len;
 }
 
 static bool is_fence_line(const char* text) {

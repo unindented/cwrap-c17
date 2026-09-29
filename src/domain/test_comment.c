@@ -175,6 +175,71 @@ static void test_extract_drops_starred_closer_line(void) {
   arena_free(&arena);
 }
 
+// A prose line indented at any depth after a tag continues it and loses its indent.
+static void test_extract_tag_continuation_at_any_depth(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "/**\n * @brief One\n *   two\n *             three\n *\n *   sample\n */\n";
+  struct BodyLineList lines = extract(&arena, source);
+  TEST_ASSERT(lines.count == 5);
+  TEST_CHECK(lines.items[0].kind == BODY_LINE_TAG);
+  TEST_CHECK(lines.items[1].kind == BODY_LINE_PROSE);
+  TEST_CHECK(strcmp(lines.items[1].text, "two") == 0);
+  TEST_CHECK(lines.items[2].kind == BODY_LINE_PROSE);
+  TEST_CHECK(strcmp(lines.items[2].text, "three") == 0);
+  TEST_CHECK(lines.items[4].kind == BODY_LINE_CODE);
+  TEST_CHECK(strcmp(lines.items[4].text, "  sample") == 0);
+  arena_free(&arena);
+}
+
+// A list item or decoration indented under a tag keeps its indent and ends the tag.
+static void test_extract_indented_list_ends_tag(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "/**\n * @param mode One of:\n *   - first\n *   more\n */\n";
+  struct BodyLineList lines = extract(&arena, source);
+  TEST_ASSERT(lines.count == 3);
+  TEST_CHECK(lines.items[1].kind == BODY_LINE_CODE);
+  TEST_CHECK(strcmp(lines.items[1].text, "  - first") == 0);
+  TEST_CHECK(lines.items[2].kind == BODY_LINE_CODE);
+  arena_free(&arena);
+}
+
+// A Doxygen code or verbatim region, fence lines included, is a sample in either spelling.
+static void test_extract_doxygen_fences(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source =
+      "/**\n * @param x Example:\n *        @code{.c}\n * @brief f(x);\n *        @endcode\n"
+      " * \\verbatim\n * @endcode\n * \\endverbatim\n * After.\n */\n";
+  struct BodyLineList lines = extract(&arena, source);
+  TEST_ASSERT(lines.count == 8);
+  TEST_CHECK(lines.items[0].kind == BODY_LINE_TAG);
+  for (size_t i = 1; i < 7; i++) {
+    TEST_CHECK(lines.items[i].kind == BODY_LINE_CODE);
+    TEST_MSG("line %zu: '%s'", i, lines.items[i].text);
+  }
+  TEST_CHECK(lines.items[7].kind == BODY_LINE_PROSE);
+  arena_free(&arena);
+}
+
+// Commands are prose in a plain `//` or slash-star block, and a tag in a Doxygen line block.
+static void test_extract_commands_only_in_doxygen_blocks(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* sources[] = {"// @brief a\n", "/* @brief a */\n", "/// @brief a\n", "//! @brief a\n"};
+  const enum BodyLineKind kinds[] = {BODY_LINE_PROSE, BODY_LINE_PROSE, BODY_LINE_TAG,
+                                     BODY_LINE_TAG};
+  for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+    struct BodyLineList lines = extract(&arena, sources[i]);
+    TEST_ASSERT(lines.count == 1);
+    TEST_CHECK(lines.items[0].kind == kinds[i]);
+    TEST_CHECK(strcmp(lines.items[0].text, "@brief a") == 0);
+    TEST_MSG("source: '%s'", sources[i]);
+  }
+  arena_free(&arena);
+}
+
 // Emit restores a hanging closer on the last prose line.
 static void test_emit_hanging_trails_closer(void) {
   struct Arena arena;
@@ -269,6 +334,10 @@ TEST_LIST = {
     {"extract drops hanging closer line", test_extract_drops_hanging_closer_line},
     {"extract keeps hanging sample indent", test_extract_keeps_hanging_sample_indent},
     {"extract drops starred closer line", test_extract_drops_starred_closer_line},
+    {"extract tag continuation at any depth", test_extract_tag_continuation_at_any_depth},
+    {"extract indented list ends tag", test_extract_indented_list_ends_tag},
+    {"extract doxygen fences", test_extract_doxygen_fences},
+    {"extract commands only in doxygen blocks", test_extract_commands_only_in_doxygen_blocks},
     {"emit hanging trails closer", test_emit_hanging_trails_closer},
     {"emit restores line marker", test_emit_restores_line_marker},
     {"prefix columns follow marker", test_prefix_columns_follow_marker},

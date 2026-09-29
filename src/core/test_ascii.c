@@ -5,7 +5,7 @@
 // `ascii_is_digit` answers for `[0-9]` and nothing else, asserted at both edges. Only `parse_size`
 // re-checks the byte afterwards by handing it to `strtoull`. The other callers do not: widening the
 // set would change which spans `quantity_unit_len` treats as a quantity and which payload lines
-// `is_list_line` treats as a numbered marker, both of which are golden-fixture behavior.
+// `comment_is_list_line` treats as a numbered marker, both of which are golden-fixture behavior.
 static void test_is_digit_accepts_only_ascii_digits(void) {
   TEST_CHECK(ascii_is_digit('0'));
   TEST_CHECK(ascii_is_digit('5'));

@@ -60,6 +60,25 @@ static void test_indents_wrapped_tag_description(void) {
   arena_free(&arena);
 }
 
+// A tag's continuation joins it, and the refilled description hangs under its first word.
+static void test_refills_tag_continuation(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  struct BodyLine items[] = {
+      {BODY_LINE_TAG, "@note one two", strlen("@note one two")},
+      {BODY_LINE_PROSE, "three four five", strlen("three four five")},
+  };
+  struct BodyLineList lines = {items, 2};
+  char err[64];
+  TEST_CHECK(fill_body_lines(&lines, 3, 3, 24, false, &arena, err, sizeof(err)) == 0);
+  TEST_CHECK(lines.count == 2);
+  TEST_CHECK(lines.items[0].kind == BODY_LINE_TAG);
+  TEST_CHECK(strcmp(lines.items[0].text, "@note one two three") == 0);
+  TEST_CHECK(lines.items[1].kind == BODY_LINE_PROSE);
+  TEST_CHECK(strcmp(lines.items[1].text, "      four five") == 0);
+  arena_free(&arena);
+}
+
 // A tag line starts its own paragraph and is not joined with the prose above.
 static void test_tag_line_starts_new_paragraph(void) {
   struct Arena arena;
@@ -100,11 +119,32 @@ static void test_rebuilds_multiple_paragraphs_in_one_pass(void) {
   arena_free(&arena);
 }
 
+// A command word or list marker travels with the word before it, so no continuation line starts
+// with one and reads back as a tag or list item.
+static void test_keeps_line_openers_off_continuation_starts(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  struct BodyLine items[] = {
+      {BODY_LINE_PROSE, "aaaa bbbb @p cccc - dd 1. ee", strlen("aaaa bbbb @p cccc - dd 1. ee")},
+  };
+  struct BodyLineList lines = {items, 1};
+  char err[64];
+  TEST_CHECK(fill_body_lines(&lines, 3, 3, 12, false, &arena, err, sizeof(err)) == 0);
+  TEST_CHECK(lines.count == 4);
+  TEST_CHECK(strcmp(lines.items[0].text, "aaaa") == 0);
+  TEST_CHECK(strcmp(lines.items[1].text, "bbbb @p") == 0);
+  TEST_CHECK(strcmp(lines.items[2].text, "cccc -") == 0);
+  TEST_CHECK(strcmp(lines.items[3].text, "dd 1. ee") == 0);
+  arena_free(&arena);
+}
+
 TEST_LIST = {
     {"joins short prose lines", test_joins_short_prose_lines},
     {"leaves list items untouched", test_leaves_list_items_untouched},
     {"indents wrapped tag description", test_indents_wrapped_tag_description},
+    {"refills tag continuation", test_refills_tag_continuation},
     {"tag line starts new paragraph", test_tag_line_starts_new_paragraph},
     {"rebuilds multiple paragraphs in one pass", test_rebuilds_multiple_paragraphs_in_one_pass},
+    {"keeps line openers off continuation starts", test_keeps_line_openers_off_continuation_starts},
     {NULL, NULL},
 };

@@ -89,6 +89,7 @@ Run these commands for help:
 
 - Prose in `//`, `///`, `//!`, `/* */`, `/** */`, and `/*! */` comments is refilled to the column. Each comment keeps its opener, and consecutive line comments merge only when they share one.
 - Trailing comments, list items, indented samples, Markdown fences, and comments with no letters or digits, such as banners, are left unchanged.
+- In a Doxygen comment (`///`, `//!`, `/**`, or `/*!`), a line that starts with a command such as `@brief` or `\param` starts a new paragraph. Its description wraps under the first word after the command. `@param` and `@retval` descriptions line up in a shared column. `@code` and `@verbatim` regions are left unchanged.
 
 ## Contributing
 
