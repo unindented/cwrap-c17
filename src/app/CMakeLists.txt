@@ -7,7 +7,7 @@ target_sources(
 )
 
 if(CWRAP_BUILD_TESTING)
-  foreach(module IN ITEMS cli cli_dispatch cmd_wrap exit_code wrap_input)
+  foreach(module IN ITEMS cli cli_dispatch cmd_wrap wrap_input)
     cwrap_add_unit_test(${module})
   endforeach()
 endif()

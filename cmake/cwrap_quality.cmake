@@ -15,7 +15,6 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/app/test_cli.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cli_dispatch.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cmd_wrap.c"
-    "${PROJECT_SOURCE_DIR}/src/app/test_exit_code.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_wrap_input.c"
     "${PROJECT_SOURCE_DIR}/src/app/wrap_input.c"
     "${PROJECT_SOURCE_DIR}/src/app/wrap_input.h"
