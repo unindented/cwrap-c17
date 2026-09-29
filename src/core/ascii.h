@@ -4,16 +4,16 @@
 #include <stdbool.h>
 
 // This is hand-rolled ASCII classification rather than `<ctype.h>`, for two reasons. `<ctype.h>` is
-// locale-dependent, so under a non-C locale `isalnum` and `tolower` can accept or fold bytes
-// outside ASCII. The wrap output would then depend on the environment the tool ran in. These
-// predicates decide where a hex run ends and whether a payload line is decoration or a numbered
-// list marker, so a locale-widened alphabet would silently rewrap comments differently. These
-// answer for ASCII only, whatever the locale. Every `<ctype.h>` function also takes an `int` whose
-// value must be representable as an `unsigned char` or equal `EOF`. If plain `char` is signed,
-// passing a byte above 0x7F causes undefined behavior. The byte becomes a negative value outside
-// the permitted range. Taking `unsigned char` moves that conversion into the parameter, where it is
-// value-preserving, so a caller scanning with a `const unsigned char*` or an explicit
-// `(unsigned char)` cast cannot get it wrong.
+// locale-dependent, so under a non-C locale `isalnum` can accept bytes outside ASCII. The wrap
+// output would then depend on the environment the tool ran in. These predicates decide where a hex
+// run ends and whether a payload line is decoration or a numbered list marker, so a locale-widened
+// alphabet would silently rewrap comments differently. These answer for ASCII only, whatever the
+// locale. Every `<ctype.h>` function also takes an `int` whose value must be representable as an
+// `unsigned char` or equal `EOF`. If plain `char` is signed, passing a byte above 0x7F causes
+// undefined behavior. The byte becomes a negative value outside the permitted range. Taking
+// `unsigned char` moves that conversion into the parameter, where it is value-preserving, so a
+// caller scanning with a `const unsigned char*` or an explicit `(unsigned char)` cast cannot get it
+// wrong.
 //
 // These are header-only and `static inline`, because every body is one or two comparisons.
 
@@ -35,16 +35,6 @@ static inline bool ascii_is_digit(unsigned char c) {
  */
 static inline bool ascii_is_alphanumeric(unsigned char c) {
   return ascii_is_digit(c) || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-}
-
-/**
- * @brief Lowercases an ASCII uppercase letter, leaving every other byte unchanged.
- *
- * @param c Byte to convert.
- * @return `c` mapped to lowercase when it is in `[A-Z]`, otherwise `c` unchanged.
- */
-static inline unsigned char ascii_to_lower(unsigned char c) {
-  return (c >= 'A' && c <= 'Z') ? (unsigned char)(c + ('a' - 'A')) : c;
 }
 
 #endif
