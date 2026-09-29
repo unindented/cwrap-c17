@@ -56,15 +56,6 @@ static bool is_include_line(const char* source, size_t start, size_t end)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Returns the display width of `c` at `column`.
- *
- * @param column Current display column on the line.
- * @param c      Byte to measure. Tabs expand to `TAB_WIDTH`.
- * @return Columns consumed by `c`.
- */
-static size_t byte_columns(size_t column, unsigned char c);
-
-/**
  * @brief Consumes the byte after a backslash when it belongs to an LF or CRLF line splice.
  *
  * A CR keeps the lexer in its backslash state until the following LF completes the splice. The LF
@@ -129,6 +120,16 @@ int lex_comment_spans(const char* source,
   return 0;
 }
 
+size_t lex_advance_column(size_t column, unsigned char c) {
+  if (c == '\t') {
+    return column + TAB_WIDTH - (column % TAB_WIDTH);
+  }
+  if (c < 0x20 || c == 0x7F) {
+    return column;
+  }
+  return column + 1;
+}
+
 static bool is_include_line(const char* source, size_t start, size_t end) {
   size_t i = start;
   while (i < end && (source[i] == ' ' || source[i] == '\t')) {
@@ -152,16 +153,6 @@ static bool is_include_line(const char* source, size_t start, size_t end) {
   const size_t after_keyword = i + include_len;
   return after_keyword == end || source[after_keyword] == ' ' || source[after_keyword] == '\t' ||
          source[after_keyword] == '"' || source[after_keyword] == '<';
-}
-
-static size_t byte_columns(size_t column, unsigned char c) {
-  if (c == '\t') {
-    return TAB_WIDTH - (column % TAB_WIDTH);
-  }
-  if (c < 0x20 || c == 0x7F) {
-    return 0;
-  }
-  return 1;
 }
 
 static bool consume_line_splice(const char* source,
@@ -195,7 +186,7 @@ static size_t scan_spans(struct CommentSpan* items, const char* source, size_t s
 
   for (size_t i = 0; i < source_len; i++) {
     const unsigned char c = (unsigned char)source[i];
-    const size_t next_column = column + byte_columns(column, c);
+    const size_t next_column = lex_advance_column(column, c);
 
     switch (state) {
       case LEX_STATE_CODE:

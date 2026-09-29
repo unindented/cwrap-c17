@@ -67,4 +67,17 @@ int lex_comment_spans(const char* source,
                       char* err,
                       size_t err_len) __attribute__((nonnull(1, 3, 4)));
 
+/**
+ * @brief Returns the display column after `c` when it starts at `column`.
+ *
+ * This is the one measure of source columns, so a span's `opener_column` and any later indent
+ * measurement agree.
+ *
+ * @param column Display column where `c` starts, measured from the start of its line.
+ * @param c      Byte to measure. A tab advances to the next multiple of 8, a C0 control or DEL
+ *               takes no column, and any other byte takes one.
+ * @return Display column after `c`.
+ */
+size_t lex_advance_column(size_t column, unsigned char c);
+
 #endif

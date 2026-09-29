@@ -10,9 +10,6 @@
 #include "shared/arena.h"
 #include "shared/string_buffer.h"
 
-/** Display columns per tab stop when measuring source indentation. */
-enum { TAB_WIDTH = 8 };
-
 /** Fenced region open while body lines are classified. */
 enum PayloadFence {
   /** No fence is open. */
@@ -572,11 +569,7 @@ static enum CommentShape classify_block_shape(const char* source, const struct C
   while (i < span->end) {
     size_t column = 0;
     while (i < span->end && (source[i] == ' ' || source[i] == '\t')) {
-      if (source[i] == '\t') {
-        column += (size_t)TAB_WIDTH - (column % (size_t)TAB_WIDTH);
-      } else {
-        column++;
-      }
+      column = lex_advance_column(column, (unsigned char)source[i]);
       i++;
     }
     if (i < span->end && source[i] == '*' && column == star_column) {
@@ -694,8 +687,7 @@ static int append_stripped_line(const char* source,
         }
       }
     } else {
-      const size_t hang_columns = block->indent_columns + strlen(block->opener) + 1;
-      start = skip_hanging_indent(source, start, end, hang_columns);
+      start = skip_hanging_indent(source, start, end, comment_prefix_columns(block));
     }
     if ((is_last && start == end) || (is_first && block->is_opener_empty && start == end)) {
       *is_kept_out = false;
@@ -834,11 +826,7 @@ static size_t skip_hanging_indent(const char* source,
   size_t i = start;
   size_t columns = 0;
   while (i < end && (source[i] == ' ' || source[i] == '\t') && columns < hang_columns) {
-    if (source[i] == '\t') {
-      columns += (size_t)TAB_WIDTH - (columns % (size_t)TAB_WIDTH);
-    } else {
-      columns++;
-    }
+    columns = lex_advance_column(columns, (unsigned char)source[i]);
     i++;
   }
   return i;
