@@ -120,8 +120,8 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
   struct copt opt = copt_init(argc, argv, 1);  // 1 enables argv reordering, not a start index
   copt_set_noargfn(&opt, cli_parse_handle_missing_arg, NULL);
   while (copt_next(&opt)) {
-    // A valid informational flag stays requested whatever follows it, and a rejected spelling
-    // never requests one, so the outcome does not depend on the order the flags appear in.
+    // A valid informational flag stays requested whatever follows it, and a rejected spelling never
+    // requests one, so the outcome does not depend on the order the flags appear in.
     if (copt_opt(&opt, "V|version")) {
       if (cli_parse_require_no_attached_value(options, &opt, argv) == 0) {
         has_version = true;

@@ -102,8 +102,8 @@ int lex_comment_spans(const char* source,
                       struct CommentSpanList* spans_out,
                       char* err,
                       size_t err_len) {
-  // Counting first sizes the array exactly. A bound from the source length alone would reserve
-  // tens of bytes per source byte.
+  // Counting first sizes the array exactly. A bound from the source length alone would reserve tens
+  // of bytes per source byte.
   const size_t count = scan_spans(NULL, source, source_len);
 
   struct CommentSpan* items = NULL;

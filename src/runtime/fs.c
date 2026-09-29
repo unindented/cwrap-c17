@@ -97,16 +97,15 @@ int fs_read_file(const char* file_path,
   if (fstat(fd, &st) != 0) {
     rc = fs_reason_errno(reason, reason_len, errno);
   } else if (!S_ISREG(st.st_mode)) {
-    // `error_report` returns `-1`, but it lives in another translation unit, so the analyzer
-    // cannot see that and would follow a path where these checks leave `rc` at 0.
+    // `error_report` returns `-1`, but it lives in another translation unit, so the analyzer cannot
+    // see that and would follow a path where these checks leave `rc` at 0.
     (void)error_report(reason, reason_len, "not a regular file");
     rc = -1;
   } else if ((uintmax_t)st.st_size > (uintmax_t)SIZE_MAX - 1) {
-    // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to
-    // 0 and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
-    // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A
-    // negative size, which no regular file reports, would widen past the limit and fail here as
-    // well.
+    // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to 0
+    // and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
+    // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A negative
+    // size, which no regular file reports, would widen past the limit and fail here as well.
     (void)error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %ju bytes",
                        SIZE_MAX - 1, (uintmax_t)st.st_size);
     rc = -1;

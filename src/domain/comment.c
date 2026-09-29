@@ -50,6 +50,9 @@ static bool is_span_rewritable(const char* source, const struct CommentSpan* spa
 /**
  * @brief Reports whether `spans[index]` can extend the line-comment run that `first` opens.
  *
+ * The candidate must sit on the line after the previous span, preceded by nothing but horizontal
+ * whitespace, at the same indent column and with the same marker as `first`.
+ *
  * @param source       Source bytes. Must not be `NULL`.
  * @param spans        Span list. Must not be `NULL`.
  * @param index        Candidate span index.
@@ -497,14 +500,20 @@ static bool is_line_run_continuation(const char* source,
       strcmp(span_opener(source, next), span_opener(source, first)) != 0) {
     return false;
   }
-  if (next->start == previous_end + 1 && source[previous_end] == '\n') {
-    return true;
+  // Only the line break and the next line's indent may separate the two spans. The column check
+  // above keeps that indent at the run's own.
+  size_t i = previous_end;
+  if (source[i] == '\r') {
+    i++;
   }
-  if (next->start == previous_end + 2 && source[previous_end] == '\r' &&
-      source[previous_end + 1] == '\n') {
-    return true;
+  if (source[i] != '\n') {
+    return false;
   }
-  return false;
+  i++;
+  while (i < next->start && (source[i] == ' ' || source[i] == '\t')) {
+    i++;
+  }
+  return i == next->start;
 }
 
 static const char* span_opener(const char* source, const struct CommentSpan* span) {

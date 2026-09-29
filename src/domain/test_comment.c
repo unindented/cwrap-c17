@@ -97,6 +97,72 @@ static void test_groups_line_runs_by_marker(void) {
   arena_free(&arena);
 }
 
+// An indented line run groups like a top-level one, and its block keeps the shared indent.
+static void test_groups_indented_line_run(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "{\n  // one\n  // two\n  // three\n}\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 1);
+  TEST_CHECK(blocks.items[0].start == strlen("{\n  "));
+  TEST_CHECK(blocks.items[0].end == strlen("{\n  // one\n  // two\n  // three"));
+  TEST_CHECK(blocks.items[0].indent_columns == 2);
+  arena_free(&arena);
+}
+
+// A line at a different indent starts a new block, whether it is deeper or shallower.
+static void test_groups_split_line_run_at_indent_change(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "  // one\n    // two\n  // three\n// four\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 4);
+  TEST_CHECK(blocks.items[0].end == strlen("  // one"));
+  TEST_CHECK(blocks.items[1].start == strlen("  // one\n    "));
+  TEST_CHECK(blocks.items[1].end == strlen("  // one\n    // two"));
+  TEST_CHECK(blocks.items[2].indent_columns == 2);
+  TEST_CHECK(blocks.items[3].indent_columns == 0);
+  arena_free(&arena);
+}
+
+// A tab indent is measured in display columns, so it matches eight spaces and no fewer.
+static void test_groups_tab_indented_line_run(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "\t// one\n        // two\n\t// three\n  // four\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 2);
+  TEST_CHECK(blocks.items[0].end == strlen("\t// one\n        // two\n\t// three"));
+  TEST_CHECK(blocks.items[0].indent_columns == 8);
+  TEST_CHECK(blocks.items[1].indent_columns == 2);
+  arena_free(&arena);
+}
+
+// An indented line run groups across CRLF line breaks and records the CRLF convention.
+static void test_groups_crlf_indented_line_run(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "  // one\r\n  // two\r\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 1);
+  TEST_CHECK(blocks.items[0].end == strlen("  // one\r\n  // two"));
+  TEST_CHECK(blocks.items[0].has_crlf_newlines);
+  arena_free(&arena);
+}
+
+// A code line or a blank line between two indented line comments ends the run.
+static void test_groups_split_line_run_at_code_or_blank_line(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* source = "  // one\n  x++;\n  // two\n\n  // three\n  \n  // four\n";
+  struct CommentBlockList blocks = group(&arena, source);
+  TEST_ASSERT(blocks.count == 4);
+  TEST_CHECK(blocks.items[0].end == strlen("  // one"));
+  TEST_CHECK(blocks.items[1].end == strlen("  // one\n  x++;\n  // two"));
+  TEST_CHECK(blocks.items[2].end == strlen("  // one\n  x++;\n  // two\n\n  // three"));
+  arena_free(&arena);
+}
+
 // A block with no letter, digit, or non-ASCII byte is omitted, so a banner is copied unchanged.
 static void test_groups_skip_blocks_without_prose(void) {
   struct Arena arena;
@@ -333,6 +399,12 @@ TEST_LIST = {
     {"groups skip spliced line comment", test_groups_skip_spliced_line_comment},
     {"records opener marker", test_records_opener_marker},
     {"groups line runs by marker", test_groups_line_runs_by_marker},
+    {"groups indented line run", test_groups_indented_line_run},
+    {"groups split line run at indent change", test_groups_split_line_run_at_indent_change},
+    {"groups tab indented line run", test_groups_tab_indented_line_run},
+    {"groups crlf indented line run", test_groups_crlf_indented_line_run},
+    {"groups split line run at code or blank line",
+     test_groups_split_line_run_at_code_or_blank_line},
     {"groups skip blocks without prose", test_groups_skip_blocks_without_prose},
     {"classifies starred and hanging", test_classifies_starred_and_hanging},
     {"extract drops hanging closer line", test_extract_drops_hanging_closer_line},
