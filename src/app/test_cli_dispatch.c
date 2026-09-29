@@ -76,9 +76,10 @@ static void test_version_action_reports_ok(void) {
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
 }
 
-// `--help` writes usage to `stdout` and reports success. The program name comes from `argv[0]`.
-// Using a deliberately different name proves the function substitutes it rather than hard-coding
-// `cwrap`. `test_cli.c` pins the text itself, so this test asserts only the plumbing.
+// `--help` writes the usage text to `stdout` and reports success. The program name comes from
+// `argv[0]`. Using a name that is deliberately not `"cwrap"` proves the function substitutes it
+// rather than hard-coding it. `test_cli.c` pins the text itself, so this test asserts only the
+// plumbing.
 static void test_help_action_reports_ok(void) {
   char* argv[] = {"/opt/bin/mycwrap", "--help", NULL};
   struct DispatchOutput dispatch_out;
@@ -105,12 +106,13 @@ static void test_wrap_command_receives_parsed_options(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
+  (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, "// one two\n") == 0);
     free(file_data);
   }
-  (void)unlink(file_path);
 }
 
 // Check mode also reaches the wrap command. It reports a source that would change and leaves that
@@ -127,23 +129,25 @@ static void test_wrap_command_receives_check_option(void) {
   TEST_CHECK(dispatch_out.stdout_out[0] == '\0');
   char expected[4096];
   const int n = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
-  TEST_ASSERT(n > 0 && (size_t)n < sizeof(expected));
+  TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
   TEST_CHECK(strcmp(dispatch_out.stderr_out, expected) == 0);
 
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
+  (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, wrap_fixture_source) == 0);
     free(file_data);
   }
-  (void)unlink(file_path);
 }
 
 // A command line that fails to parse reports `EXIT_CODE_USAGE`, and the parser's own diagnostic
-// goes to `stderr` rather than `stdout`. `test_cli.c` asserts that `cli_parse` produced the
-// message; this test pins the dispatch mapping and stream routing.
+// goes to `stderr` rather than `stdout`. The exit code is what nothing else pins: `2` is what a
+// shell or CI wrapper branches on to tell a bad invocation from a failed wrap, and `test_cli.c`
+// asserts only that `cli_parse` produced the message.
 static void test_parse_error_reports_usage_code(void) {
   char* argv[] = {"cwrap", "--bogus", NULL};
   struct DispatchOutput dispatch_out;
@@ -152,9 +156,11 @@ static void test_parse_error_reports_usage_code(void) {
   TEST_CHECK(dispatch_out.stdout_out[0] == '\0');
 }
 
-// A `stdout` that cannot be written turns a successful version action into `EXIT_CODE_FAILURE` and
-// names both the subject and the stream's own reason. A read-only descriptor is deterministic: the
-// write fails inside the printer's `fflush`, and the captured `stderr` remains writable.
+// A `stdout` that cannot be written turns a successful print into `EXIT_CODE_FAILURE` and names
+// both the subject and the stream's own reason. Nothing else in the suite reaches this arm. Other
+// tests make a printer fail, but none goes through `cli_dispatch`, so nothing else pins the mapping
+// from a printer's non-zero result to an exit code. A read-only descriptor is the deterministic way
+// there, since the write fails inside the printer's `fflush` rather than at the `fprintf`.
 static void test_version_write_failure_reports_failure(void) {
   char* argv[] = {"cwrap", "--version", NULL};
   enum ExitCode rc = (enum ExitCode)TEST_PLUMBING_FAILED;
