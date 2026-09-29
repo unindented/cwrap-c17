@@ -30,6 +30,8 @@ The library is static because it supports one product. It does not provide a pub
 
 Each vendored project has a separate target. Header-only dependencies use interface libraries.
 
+`cwrap_app` links to `cwrap_vendor_sharedstuff` as a public dependency because application headers expose its types. The other vendored dependencies are private.
+
 Source directories group code by function. They do not define separate libraries. Each local `CMakeLists.txt` adds files to `cwrap_app`. More libraries would add link boundaries without independent APIs.
 
 ### Generated dependency graph
