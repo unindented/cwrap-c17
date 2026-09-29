@@ -159,10 +159,10 @@ static int append_filled_line(struct BodyLineList* lines,
 /**
  * @brief Merges each atom that would open a line of another kind into the atom before it.
  *
- * A continuation line that started with a Doxygen command or a list marker would read back as a new
- * tag or list item and stop the paragraph from refilling, so such an atom travels with the word
- * before it. An atom inside the frozen tag prefix takes nothing, because the atom after the prefix
- * always stays on the first line.
+ * A continuation line that started with a Doxygen command, a list marker, or a tool directive would
+ * read back as a new tag, list item, or directive and stop the paragraph from refilling, so such an
+ * atom travels with the word before it. An atom inside the frozen tag prefix takes nothing, because
+ * the atom after the prefix always stays on the first line.
  *
  * @param atoms             Atoms of `joined`, merged in place. Must not be `NULL`.
  * @param joined            Terminated paragraph text the atoms alias. Must not be `NULL`.
@@ -447,8 +447,9 @@ static void glue_line_opener_atoms(struct AtomList* atoms,
     const struct Atom atom = atoms->items[i];
     struct DoxygenTag tag;
     // Each atom is followed in `joined` by the space or end that follows it on an emitted line.
-    const bool is_line_opener =
-        doxygen_has_tag(atom.text, atom.text_len, &tag) || comment_is_list_line(atom.text);
+    const bool is_line_opener = doxygen_has_tag(atom.text, atom.text_len, &tag) ||
+                                comment_is_list_line(atom.text) ||
+                                comment_is_tool_directive(atom.text);
     if (kept > 0 && is_line_opener) {
       struct Atom* previous = &atoms->items[kept - 1];
       if ((size_t)(previous->text - joined) + previous->text_len > frozen_prefix_len) {

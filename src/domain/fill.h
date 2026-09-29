@@ -14,10 +14,11 @@ struct BodyLineList;
  * its continuation lines join, and it keeps the tag keyword and any documented name on its first
  * line. A wrapped tag description hangs under the first description word, so an aligned `@param` or
  * `@retval` continues at the shared description column and any other tag under the first word after
- * its keyword. A Doxygen command or list marker inside a paragraph travels with the word before it,
- * so no continuation line reads back as a tag or list item. List items, fenced or indented samples,
- * and decorative lines are left untouched. When `has_trailing_closer` is true and a paragraph ends
- * the body, its last line reserves three columns for the closer that trails it.
+ * its keyword. A Doxygen command, list marker, or tool directive inside a paragraph travels with
+ * the word before it, so no continuation line reads back as a tag, list item, or directive. List
+ * items, fenced or indented samples, decorative lines, and directive lines are left untouched. When
+ * `has_trailing_closer` is true and a paragraph ends the body, its last line reserves three columns
+ * for the closer that trails it.
  *
  * @param lines                Body lines to refill in place. Must not be `NULL`.
  * @param first_prefix_columns Display columns before the first body line.

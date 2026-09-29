@@ -78,6 +78,10 @@ enum BodyLineKind {
   /** A decorative run of punctuation, left untouched. */
   BODY_LINE_DECORATION,
 
+  /** A tool directive such as `NOLINT` or `cppcheck-suppress`, left untouched so the tool still
+      finds it on its own line. */
+  BODY_LINE_DIRECTIVE,
+
   /** An empty payload, which ends a paragraph. */
   BODY_LINE_BLANK,
 };
@@ -214,5 +218,16 @@ size_t comment_first_prefix_columns(const struct CommentBlock* block) __attribut
  * @return `true` when the line starts with `- `, `* `, `+ `, or a numbered item such as `1. `.
  */
 bool comment_is_list_line(const char* text) __attribute__((nonnull(1)));
+
+/**
+ * @brief Reports whether `text` starts with a tool directive such as `NOLINT` or
+ *        `cppcheck-suppress`.
+ *
+ * A directive line is copied unchanged, and no refilled continuation line may start with one.
+ *
+ * @param text Terminated payload. Must not be `NULL`.
+ * @return `true` when a known directive opens `text` as a whole word.
+ */
+bool comment_is_tool_directive(const char* text) __attribute__((nonnull(1)));
 
 #endif

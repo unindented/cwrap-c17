@@ -138,6 +138,48 @@ static void test_keeps_line_openers_off_continuation_starts(void) {
   arena_free(&arena);
 }
 
+// A tool directive inside prose travels with the word before it, so no continuation line starts
+// with one and reads back as a directive line.
+static void test_keeps_tool_directives_off_continuation_starts(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  char text[] = "aaaa NOLINT bbbb clang-format off";
+  struct BodyLine items[] = {
+      {BODY_LINE_PROSE, text, strlen(text)},
+  };
+  struct BodyLineList lines = {items, 1};
+  char err[64];
+  TEST_CHECK(fill_body_lines(&lines, 3, 3, 12, false, &arena, err, sizeof(err)) == 0);
+  TEST_ASSERT(lines.count == 3);
+  TEST_CHECK(strcmp(lines.items[0].text, "aaaa NOLINT") == 0);
+  TEST_CHECK(strcmp(lines.items[1].text, "bbbb clang-format") == 0);
+  TEST_CHECK(strcmp(lines.items[2].text, "off") == 0);
+  arena_free(&arena);
+}
+
+// A directive line wider than the column is copied as is and splits the prose around it.
+static void test_leaves_directive_lines_untouched(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  char one[] = "one";
+  char directive[] = "NOLINTNEXTLINE(misc-no-recursion)";
+  char two[] = "two";
+  struct BodyLine items[] = {
+      {BODY_LINE_PROSE, one, 3},
+      {BODY_LINE_DIRECTIVE, directive, strlen(directive)},
+      {BODY_LINE_PROSE, two, 3},
+  };
+  struct BodyLineList lines = {items, 3};
+  char err[64];
+  TEST_CHECK(fill_body_lines(&lines, 3, 3, 20, false, &arena, err, sizeof(err)) == 0);
+  TEST_ASSERT(lines.count == 3);
+  TEST_CHECK(strcmp(lines.items[0].text, "one") == 0);
+  TEST_CHECK(lines.items[1].kind == BODY_LINE_DIRECTIVE);
+  TEST_CHECK(strcmp(lines.items[1].text, directive) == 0);
+  TEST_CHECK(strcmp(lines.items[2].text, "two") == 0);
+  arena_free(&arena);
+}
+
 TEST_LIST = {
     {"joins short prose lines", test_joins_short_prose_lines},
     {"leaves list items untouched", test_leaves_list_items_untouched},
@@ -146,5 +188,8 @@ TEST_LIST = {
     {"tag line starts new paragraph", test_tag_line_starts_new_paragraph},
     {"rebuilds multiple paragraphs in one pass", test_rebuilds_multiple_paragraphs_in_one_pass},
     {"keeps line openers off continuation starts", test_keeps_line_openers_off_continuation_starts},
+    {"keeps tool directives off continuation starts",
+     test_keeps_tool_directives_off_continuation_starts},
+    {"leaves directive lines untouched", test_leaves_directive_lines_untouched},
     {NULL, NULL},
 };

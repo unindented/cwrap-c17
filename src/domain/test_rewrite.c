@@ -422,6 +422,45 @@ static void test_leaves_hanging_indented_sample(void) {
   free(out);
 }
 
+/**
+ * @brief Checks that rewriting `source` at `width` produces exactly `expected`.
+ *
+ * @param source   Terminated source text to rewrite.
+ * @param width    Target display width in columns.
+ * @param expected Terminated text the rewrite must produce.
+ */
+static void check_rewrite(const char* source, size_t width, const char* expected) {
+  char* out = rewrite(source, width);
+  TEST_ASSERT(out != NULL);
+  if (out == NULL) {
+    return;
+  }
+  TEST_CHECK(strcmp(out, expected) == 0);
+  TEST_MSG("output: '%s'", out);
+  free(out);
+}
+
+// A tool directive between prose lines stays on its own line and splits them into two paragraphs.
+static void test_tool_directive_splits_paragraph(void) {
+  check_rewrite("  // one\n  // two\n  // cppcheck-suppress deallocuse\n  // three\n  // four\n",
+                40, "  // one two\n  // cppcheck-suppress deallocuse\n  // three four\n");
+  check_rewrite("/*\n * one\n * two\n * NOLINTEND(a)\n * three\n */\n", 40,
+                "/*\n * one two\n * NOLINTEND(a)\n * three\n */\n");
+}
+
+// A tool directive that opens or closes a run stays on its own line, and the prose beside it joins.
+static void test_tool_directive_at_run_edges(void) {
+  check_rewrite("// NOLINTNEXTLINE(misc-no-recursion)\n// one\n// two\n", 40,
+                "// NOLINTNEXTLINE(misc-no-recursion)\n// one two\n");
+  check_rewrite("// one\n// two\n// clang-format off\n", 40, "// one two\n// clang-format off\n");
+}
+
+// A tool directive wider than the column is copied unwrapped.
+static void test_leaves_long_tool_directive_unwrapped(void) {
+  const char* source = "  // NOLINT(bugprone-easily-swappable-parameters, misc-no-recursion)\n";
+  check_rewrite(source, 30, source);
+}
+
 // Width 0 is rejected with a diagnostic.
 static void test_rejects_zero_width(void) {
   struct Arena arena;
@@ -463,6 +502,9 @@ TEST_LIST = {
     {"joins leading with backtick slash", test_joins_leading_with_backtick_slash},
     {"leaves hanging star list", test_leaves_hanging_star_list},
     {"leaves hanging indented sample", test_leaves_hanging_indented_sample},
+    {"tool directive splits paragraph", test_tool_directive_splits_paragraph},
+    {"tool directive at run edges", test_tool_directive_at_run_edges},
+    {"leaves long tool directive unwrapped", test_leaves_long_tool_directive_unwrapped},
     {"rejects zero width", test_rejects_zero_width},
     {NULL, NULL},
 };

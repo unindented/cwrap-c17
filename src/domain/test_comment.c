@@ -1,5 +1,6 @@
 #include <acutest.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -241,6 +242,62 @@ static void test_extract_drops_starred_closer_line(void) {
   arena_free(&arena);
 }
 
+// Each known tool directive, with or without a suffix, is a directive line in any comment shape.
+static void test_extract_classifies_tool_directives(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* payloads[] = {
+      "cppcheck-suppress deallocuse",
+      "cppcheck-suppress-file unusedFunction",
+      "NOLINT",
+      "NOLINT(bugprone-branch-clone)",
+      "NOLINTNEXTLINE",
+      "NOLINTNEXTLINE(misc-no-recursion)",
+      "NOLINTBEGIN(cert-err33-c)",
+      "NOLINTEND",
+      "clang-format off",
+      "clang-format on",
+      "IWYU pragma: keep",
+      "IWYU pragma:export",
+  };
+  const char* openers[] = {"// ", "/* ", "/**\n * "};
+  const char* closers[] = {"\n", " */\n", "\n */\n"};
+  for (size_t i = 0; i < sizeof(payloads) / sizeof(payloads[0]); i++) {
+    for (size_t j = 0; j < sizeof(openers) / sizeof(openers[0]); j++) {
+      char source[128];
+      TEST_ASSERT(snprintf(source, sizeof(source), "%s%s%s", openers[j], payloads[i], closers[j]) >
+                  0);
+      struct BodyLineList lines = extract(&arena, source);
+      TEST_ASSERT(lines.count == 1);
+      TEST_CHECK(lines.items[0].kind == BODY_LINE_DIRECTIVE);
+      TEST_CHECK(strcmp(lines.items[0].text, payloads[i]) == 0);
+      TEST_MSG("source: '%s'", source);
+    }
+  }
+  arena_free(&arena);
+}
+
+// A directive matches only as a whole word, so a longer word that starts with one is prose.
+static void test_extract_tool_directive_needs_word_boundary(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* sources[] = {
+      "// NOLINTED\n",
+      "// NOLINT_SOON\n",
+      "// cppcheck-suppressed\n",
+      "// clang-format offset\n",
+      "// IWYU pragma keep\n",
+      "// nolint\n",
+  };
+  for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+    struct BodyLineList lines = extract(&arena, sources[i]);
+    TEST_ASSERT(lines.count == 1);
+    TEST_CHECK(lines.items[0].kind == BODY_LINE_PROSE);
+    TEST_MSG("source: '%s'", sources[i]);
+  }
+  arena_free(&arena);
+}
+
 // A prose line indented at any depth after a tag continues it and loses its indent.
 static void test_extract_tag_continuation_at_any_depth(void) {
   struct Arena arena;
@@ -410,6 +467,8 @@ TEST_LIST = {
     {"extract drops hanging closer line", test_extract_drops_hanging_closer_line},
     {"extract keeps hanging sample indent", test_extract_keeps_hanging_sample_indent},
     {"extract drops starred closer line", test_extract_drops_starred_closer_line},
+    {"extract classifies tool directives", test_extract_classifies_tool_directives},
+    {"extract tool directive needs word boundary", test_extract_tool_directive_needs_word_boundary},
     {"extract tag continuation at any depth", test_extract_tag_continuation_at_any_depth},
     {"extract indented list ends tag", test_extract_indented_list_ends_tag},
     {"extract doxygen fences", test_extract_doxygen_fences},

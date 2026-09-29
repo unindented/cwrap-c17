@@ -25,6 +25,16 @@ enum PayloadFence {
   PAYLOAD_FENCE_VERBATIM,
 };
 
+/**
+ * Leading text of the tool directives that a body line keeps on a line of its own. A payload
+ * matches when it starts with an entry and, if the entry ends in a letter, digit, or underscore,
+ * the next byte is none of those. To recognize another directive, add its leading text here.
+ */
+static const char* const tool_directives[] = {
+    "cppcheck-suppress", "NOLINT",           "NOLINTNEXTLINE",  "NOLINTBEGIN",
+    "NOLINTEND",         "clang-format off", "clang-format on", "IWYU pragma:",
+};
+
 /** Classification state carried from one body line to the next. */
 struct PayloadState {
   /** Fence open after the previous line. */
@@ -143,7 +153,7 @@ static int append_stripped_line(const char* source,
                                 size_t err_len) __attribute__((nonnull(1, 4, 7, 8, 9)));
 
 /**
- * @brief Classifies a stripped payload as prose, tag, list, code, decoration, or blank.
+ * @brief Classifies a stripped payload as prose, tag, list, code, decoration, directive, or blank.
  *
  * @param text       Terminated payload. Must not be `NULL`.
  * @param text_len   Length of `text`.
@@ -190,6 +200,14 @@ static bool is_doxygen_fence_closer(const char* text, size_t text_len, enum Payl
  */
 static bool has_doxygen_command(const char* text, size_t text_len, const char* command)
     __attribute__((nonnull(1, 3)));
+
+/**
+ * @brief Reports whether `c` can continue a word, so a directive that ends before it is not whole.
+ *
+ * @param c Byte to test.
+ * @return `true` for an ASCII letter, digit, or underscore.
+ */
+static bool is_word_byte(unsigned char c);
 
 /**
  * @brief Returns the number of leading spaces and tabs in `text`.
@@ -478,6 +496,22 @@ bool comment_is_list_line(const char* text) {
   return text[i] == '.' && text[i + 1] == ' ';
 }
 
+bool comment_is_tool_directive(const char* text) {
+  for (size_t i = 0; i < sizeof(tool_directives) / sizeof(tool_directives[0]); i++) {
+    const char* const directive = tool_directives[i];
+    const size_t directive_len = strlen(directive);
+    if (strncmp(text, directive, directive_len) != 0) {
+      continue;
+    }
+    const unsigned char last = (unsigned char)directive[directive_len - 1];
+    const unsigned char next = (unsigned char)text[directive_len];
+    if (!is_word_byte(last) || !is_word_byte(next)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool is_span_rewritable(const char* source, const struct CommentSpan* span) {
   if (span->is_trailing) {
     return false;
@@ -732,6 +766,9 @@ static enum BodyLineKind classify_payload(const char* text,
       return BODY_LINE_CODE;
     }
   }
+  if (comment_is_tool_directive(text)) {
+    return BODY_LINE_DIRECTIVE;
+  }
   // Extra indent after decoration marks a sample, unless the line continues a tag. A continuation
   // may sit at any depth, so a description refilled at another width still reads as one.
   if (indent_len > 0) {
@@ -776,6 +813,10 @@ static bool has_doxygen_command(const char* text, size_t text_len, const char* c
   struct DoxygenTag tag;
   return doxygen_has_tag(text, text_len, &tag) && tag.command_len == strlen(command) &&
          memcmp(tag.command, command, tag.command_len) == 0;
+}
+
+static bool is_word_byte(unsigned char c) {
+  return ascii_is_alphanumeric(c) || c == '_';
 }
 
 static size_t leading_space_len(const char* text, size_t text_len) {
