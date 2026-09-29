@@ -36,7 +36,7 @@ Source directories group code by function. They do not define separate libraries
 
 ### Generated dependency graph
 
-CMake generates this graph from the `Release` configuration. The graph shows CMake targets and link relationships. It does not show dependencies between source modules. Graph options remove test-only targets.
+CMake generates this graph from the `release` preset. The graph shows CMake targets and link relationships. It does not show dependencies between source modules. Graph options remove test-only targets.
 
 ![CMake target dependency graph](media/dependencies.svg)
 

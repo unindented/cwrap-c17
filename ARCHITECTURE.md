@@ -11,7 +11,7 @@
 - [tests/](tests/): Golden and idempotence test suites. Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence check also rewraps these files and every first-party source file at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): Project entry point and supported build configurations.
 - [cmake/](cmake/): Build profiles, quality tools, packaging, the golden and idempotence test drivers, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [vendor/](vendor/): Bundled dependencies (`copt`, `acutest`).
+- [vendor/](vendor/): Bundled dependencies (`copt`, `sharedstuff`, `acutest`).
 
 First-party dependencies point inward:
 
@@ -25,7 +25,7 @@ A module can skip layers. Modules in the same directory can depend on each other
 
 `main` ([src/app/main.c](src/app/main.c)) only calls `cli_dispatch` ([src/app/cli_dispatch.h](src/app/cli_dispatch.h)). This separation lets unit tests link the code that maps an action to an exit code. `cli_dispatch` uses `cli_parse` ([src/app/cli.h](src/app/cli.h)) to parse the command line. `cli_parse` selects one of four actions: version, help, run, or error. For the run action, `cli_dispatch` calls `cmd_wrap_run` ([src/app/cmd_wrap.h](src/app/cmd_wrap.h)).
 
-`cli_parse` is the one translation unit that defines `COPT_IMPL`. It never prints or exits. Every command returns `enum ExitCode` ([src/app/exit_code.h](src/app/exit_code.h)): `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
+`cli.c` is the one translation unit that defines `COPT_IMPL`. `cli_parse` never prints or exits. Every command returns `enum ExitCode` ([src/app/exit_code.h](src/app/exit_code.h)): `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 
 The command has two layers:
 
