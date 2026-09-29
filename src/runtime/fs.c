@@ -38,19 +38,6 @@ static int fs_read_file_bytes(char* data,
                               size_t reason_len) __attribute__((nonnull(1, 3)));
 
 /**
- * @brief Reports `error_number` alone as a failure reason.
- *
- * This is for a failure on the path the caller already names, where repeating it would only pad the
- * composed diagnostic.
- *
- * @param reason       Receives the reason. May be `NULL` only when `reason_len` is 0.
- * @param reason_len   Size of `reason` in bytes.
- * @param error_number `errno` value to describe.
- * @return `-1` always, so a caller can write `return fs_reason_errno(...);`.
- */
-static int fs_reason_errno(char* reason, size_t reason_len, int error_number);
-
-/**
  * @brief Writes all of `data` to `fp` without closing it.
  *
  * @param fp         Destination stream. Must not be `NULL`.
@@ -78,6 +65,19 @@ static int fs_write_file_bytes(FILE* fp,
  * @return `0666` reduced by the process umask.
  */
 static mode_t fs_write_file_created_mode(void);
+
+/**
+ * @brief Reports `error_number` alone as a failure reason.
+ *
+ * This is for a failure on the path the caller already names, where repeating it would only pad the
+ * composed diagnostic.
+ *
+ * @param reason       Receives the reason. May be `NULL` only when `reason_len` is 0.
+ * @param reason_len   Size of `reason` in bytes.
+ * @param error_number `errno` value to describe.
+ * @return `-1` always, so a caller can write `return fs_reason_errno(...);`.
+ */
+static int fs_reason_errno(char* reason, size_t reason_len, int error_number);
 
 int fs_read_file(const char* file_path,
                  char** data_out,
@@ -293,12 +293,6 @@ static int fs_read_file_bytes(char* data,
   return rc;
 }
 
-static int fs_reason_errno(char* reason, size_t reason_len, int error_number) {
-  char message[FS_REASON_SIZE];
-  return error_report(reason, reason_len, "%s",
-                      error_system_message(message, sizeof(message), error_number));
-}
-
 static int fs_write_file_bytes(FILE* fp,
                                const char* data,
                                size_t data_len,
@@ -308,6 +302,8 @@ static int fs_write_file_bytes(FILE* fp,
   // does not require `fwrite` to set it, so a stream error that left it at 0 is reported as `EIO`.
   errno = 0;
   const size_t written = fwrite(data, 1, data_len, fp);
+  // Capture `errno` before calling `ferror`, which is permitted to modify it even when it succeeds.
+  // Reading it afterwards could name a cause the write never had.
   const int write_errno = errno;
   if (written == data_len) {
     return 0;
@@ -322,4 +318,10 @@ static mode_t fs_write_file_created_mode(void) {
   const mode_t mask = umask(0);
   (void)umask(mask);
   return (mode_t)(0666 & ~mask);
+}
+
+static int fs_reason_errno(char* reason, size_t reason_len, int error_number) {
+  char message[FS_REASON_SIZE];
+  return error_report(reason, reason_len, "%s",
+                      error_system_message(message, sizeof(message), error_number));
 }

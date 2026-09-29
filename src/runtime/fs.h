@@ -7,9 +7,12 @@
  * Size in bytes of a filesystem failure reason, including the `NUL` terminator.
  *
  * These actions report a reason fragment, not a whole diagnostic, because the caller owns the
- * operation and the attribution. First-party fragments are lowercase and unquoted. Operating-system
- * messages keep their original spelling. Both compose as `<caller's operation>: <reason>`, with any
- * unbounded path trailing the reason.
+ * operation and the attribution. `wrap_input` reports a failed `fs_read_file` as
+ * `failed to read file` and a failed `fs_write_file` as `failed to write file`. First-party
+ * fragments are lowercase and unquoted. Operating-system messages keep their original spelling.
+ * Both compose as `<caller's operation>: <reason>`, with any unbounded path trailing the reason,
+ * never leading it. `ERROR_MESSAGE_SIZE` is smaller than a path may be, so a leading path would
+ * truncate the cause off the end.
  */
 enum { FS_REASON_SIZE = 256 };
 
@@ -17,8 +20,8 @@ enum { FS_REASON_SIZE = 256 };
  * @brief Reads a regular file into a freshly allocated, `NUL`-terminated buffer.
  *
  * On success the caller owns `*data_out` and must `free` it. It writes both output parameters only
- * on success. It rejects non-regular files, and a file whose size changes while it is being read,
- * so it never reports a partial copy as a successful read.
+ * on success. It rejects non-regular files and files that change size during a read. It never
+ * reports a partial copy as a successful read.
  *
  * It also rejects a file containing an embedded `NUL` byte. This is the boundary that establishes
  * the codebase's text invariant. Every owned string is a `NUL`-free C string, so downstream payload
@@ -34,7 +37,8 @@ enum { FS_REASON_SIZE = 256 };
  *                     success.
  * @param reason_len   Size of `reason` in bytes.
  * @return `0` on success, or `-1` when the file is missing, not regular, too large, changed size
- *         mid-read or contains an embedded `NUL`, and on a read, allocation or close failure.
+ *         mid-read or contains an embedded `NUL`, and on an open, read, allocation or close
+ *         failure.
  */
 int fs_read_file(const char* file_path,
                  char** data_out,
@@ -69,8 +73,8 @@ int fs_read_file(const char* file_path,
  * @param reason     Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  *                   Untouched on success.
  * @param reason_len Size of `reason` in bytes.
- * @return `0` on success, or `-1` on a metadata, temporary-file, write, sync, close, or rename
- *         failure.
+ * @return `0` on success, or `-1` when the path is too long, and on an allocation, metadata,
+ *         temporary-file, write, sync, close, or rename failure.
  */
 int fs_write_file(const char* file_path,
                   const char* data,
