@@ -87,7 +87,7 @@ static int append_filled_line(struct BodyLineList* lines,
  * @param first_prefix_columns First body-line prefix columns.
  * @param prefix_columns       Continuation prefix columns.
  * @param width                Wrapping column.
- * @param has_hanging_closer   Whether to reserve a hanging closer on the last line.
+ * @param has_trailing_closer  Whether to reserve a trailing closer on the last line.
  * @param arena                Arena that owns the new line texts and a temporary array. Must not
  *                              be `NULL`.
  * @param err                  Diagnostic buffer. May be `NULL` only when `err_len` is 0.
@@ -102,7 +102,7 @@ static int append_filled_paragraph(struct BodyLineList* lines,
                                    size_t first_prefix_columns,
                                    size_t prefix_columns,
                                    size_t width,
-                                   bool has_hanging_closer,
+                                   bool has_trailing_closer,
                                    struct Arena* arena,
                                    char* err,
                                    size_t err_len) __attribute__((nonnull(1, 2, 3, 10)));
@@ -142,7 +142,7 @@ int fill_body_lines(struct BodyLineList* lines,
                     size_t first_prefix_columns,
                     size_t prefix_columns,
                     size_t width,
-                    bool has_hanging_closer,
+                    bool has_trailing_closer,
                     struct Arena* arena,
                     char* err,
                     size_t err_len) {
@@ -170,7 +170,7 @@ int fill_body_lines(struct BodyLineList* lines,
     }
     const size_t frozen_prefix_len = is_tag_start ? tag_prefix_len(joined) : 0;
     if (append_filled_paragraph(&rebuilt, &rebuilt_capacity, joined, joined_len, frozen_prefix_len,
-                                first_prefix_columns, prefix_columns, width, has_hanging_closer,
+                                first_prefix_columns, prefix_columns, width, has_trailing_closer,
                                 arena, err, err_len) != 0) {
       return -1;
     }
@@ -273,7 +273,7 @@ static int append_filled_paragraph(struct BodyLineList* lines,
                                    size_t first_prefix_columns,
                                    size_t prefix_columns,
                                    size_t width,
-                                   bool has_hanging_closer,
+                                   bool has_trailing_closer,
                                    struct Arena* arena,
                                    char* err,
                                    size_t err_len) {
@@ -282,7 +282,7 @@ static int append_filled_paragraph(struct BodyLineList* lines,
     return error_report(err, err_len, "out of memory");
   }
 
-  const size_t closer_columns = has_hanging_closer ? 3 : 0;
+  const size_t closer_columns = has_trailing_closer ? 3 : 0;
 
   struct StringBuffer line;
   string_buffer_init(&line);

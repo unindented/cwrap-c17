@@ -333,11 +333,9 @@ int comment_emit(struct StringBuffer* buffer,
   }
 
   if (block->shape == COMMENT_SHAPE_STARRED) {
-    // When the refilled prose all fits on the opener line there is no continuation to decorate, so
-    // the closer trails that line rather than sitting alone below it. A lone closer is a shape this
-    // function never reproduces from its own output, which would make `--check` report a rewrap for
-    // a file `--in-place` just wrote.
-    if (prose_index > 0 && prose_index >= lines->count) {
+    // A lone closer below a one-line body is a shape this function never reproduces from its own
+    // output, which would make `--check` report a rewrap for a file `--in-place` just wrote.
+    if (comment_has_opener_closer(block, lines)) {
       return string_buffer_append(buffer, " */");
     }
 
@@ -378,6 +376,10 @@ int comment_emit(struct StringBuffer* buffer,
     return -1;
   }
   return 0;
+}
+
+bool comment_has_opener_closer(const struct CommentBlock* block, const struct BodyLineList* lines) {
+  return block->shape == COMMENT_SHAPE_STARRED && !block->is_opener_empty && lines->count == 1;
 }
 
 size_t comment_prefix_columns(const struct CommentBlock* block) {

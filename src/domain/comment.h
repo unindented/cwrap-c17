@@ -162,6 +162,19 @@ int comment_emit(struct StringBuffer* buffer,
                  const struct BodyLineList* lines) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
+ * @brief Reports whether `comment_emit` puts the closer of `block` on its opener line.
+ *
+ * A starred block whose filled body is one line on the opener has no continuation to decorate, so
+ * its closer trails that line.
+ *
+ * @param block Block being emitted. Must not be `NULL`.
+ * @param lines Filled body lines. Must not be `NULL`.
+ * @return `true` when the closer trails the opener line, or `false` otherwise.
+ */
+bool comment_has_opener_closer(const struct CommentBlock* block, const struct BodyLineList* lines)
+    __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Returns the display-column width of the continuation prefix for `block`.
  *
  * @param block Block whose continuation prefix is measured. Must not be `NULL`.

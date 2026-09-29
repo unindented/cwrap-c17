@@ -46,9 +46,19 @@ int rewrite_source(struct StringBuffer* buffer,
     if (doxygen_align_parameters(&lines, arena, err, err_len) != 0) {
       return -1;
     }
+    const struct BodyLineList aligned = lines;
     if (fill_body_lines(&lines, comment_first_prefix_columns(block), comment_prefix_columns(block),
                         width, block->shape == COMMENT_SHAPE_HANGING, arena, err, err_len) != 0) {
       return -1;
+    }
+    // A starred body that collapses onto the opener line gains a trailing closer there, so it is
+    // filled again with room for that closer.
+    if (comment_has_opener_closer(block, &lines)) {
+      lines = aligned;
+      if (fill_body_lines(&lines, comment_first_prefix_columns(block),
+                          comment_prefix_columns(block), width, true, arena, err, err_len) != 0) {
+        return -1;
+      }
     }
     if (comment_emit(buffer, bytes, block, &lines) != 0) {
       return error_report(err, err_len, "out of memory");

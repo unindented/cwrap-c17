@@ -42,7 +42,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 2. **Group** (`comment_group`): Consecutive same-indent `//` lines become one block. Trailing comments are omitted. So is a `//` comment continued by a backslash line splice: its spliced physical lines carry no `//` marker for a refill to restore, so it is copied unchanged and ends the run before it. A slash-star block is starred when a continuation `*` sits at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker.
 3. **Extract** (`comment_extract_body`): Decoration is stripped (`*/` before `*`) and each payload line is classified. A closer-only last line is dropped. Hanging indent is stripped; extra indent that is not a tag continuation is an indented sample.
 4. **Align** (`doxygen_align_parameters`): `@param` descriptions share a column.
-5. **Fill** (`fill_body_lines`): Prose paragraphs are greedily filled with [STYLE.md](STYLE.md) atoms.
+5. **Fill** (`fill_body_lines`): Prose paragraphs are greedily filled with [STYLE.md](STYLE.md) atoms. A starred body that collapses onto the opener line is filled again with room for the closer that then trails it.
 6. **Emit** (`comment_emit`): Prefixes and closers are restored with the block's original LF or CRLF convention.
 7. **Splice**: Non-comment bytes are copied unchanged.
 

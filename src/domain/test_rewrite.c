@@ -331,6 +331,20 @@ static void test_hanging_closer_trails_last_prose(void) {
   free(out);
 }
 
+// A starred body that fits the opener line only without its closer wraps to keep the closer in
+// width.
+static void test_starred_opener_line_reserves_closer(void) {
+  const char* source = "/* aaaa bbbb cccc dddd\n * eeee ffff gggg hhhh\n */\n";
+  const char* expected = "/* aaaa bbbb cccc dddd eeee ffff gggg\n * hhhh\n */\n";
+  char* out = rewrite(source, 44);
+  TEST_ASSERT(out != NULL);
+  if (out == NULL) {
+    return;
+  }
+  TEST_CHECK(strcmp(out, expected) == 0);
+  free(out);
+}
+
 // A list-item continuation keeps the two-space hanging indent under the marker.
 static void test_preserves_list_continuation_indent(void) {
   const char* source =
@@ -443,6 +457,7 @@ TEST_LIST = {
     {"keeps be on line when it fits", test_keeps_be_on_line_when_it_fits},
     {"breaks inside parenthetical", test_breaks_inside_parenthetical},
     {"hanging closer trails last prose", test_hanging_closer_trails_last_prose},
+    {"starred opener line reserves closer", test_starred_opener_line_reserves_closer},
     {"preserves list continuation indent", test_preserves_list_continuation_indent},
     {"joins leading with backtick slash", test_joins_leading_with_backtick_slash},
     {"leaves hanging star list", test_leaves_hanging_star_list},

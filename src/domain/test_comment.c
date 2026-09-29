@@ -132,6 +132,28 @@ static void test_emit_hanging_trails_closer(void) {
   arena_free(&arena);
 }
 
+// Only a starred block with one body line on the opener puts its closer on that line.
+static void test_has_opener_closer_for_one_line_starred(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  const char* starred_source = "/* foo\n * bar\n */\n";
+  struct CommentBlockList starred = group(&arena, starred_source);
+  struct BodyLineList lines;
+  char err[64];
+  TEST_CHECK(comment_extract_body(starred_source, &starred.items[0], &arena, &lines, err,
+                                  sizeof(err)) == 0);
+  TEST_CHECK(!comment_has_opener_closer(&starred.items[0], &lines));
+  lines.count = 1;
+  TEST_CHECK(comment_has_opener_closer(&starred.items[0], &lines));
+
+  const char* hanging_source = "/* foo */\n";
+  struct CommentBlockList hanging = group(&arena, hanging_source);
+  TEST_CHECK(comment_extract_body(hanging_source, &hanging.items[0], &arena, &lines, err,
+                                  sizeof(err)) == 0);
+  TEST_CHECK(!comment_has_opener_closer(&hanging.items[0], &lines));
+  arena_free(&arena);
+}
+
 // Emit starts at the opener. The original indent lives in the source gap before the block.
 static void test_emit_omits_first_line_indent(void) {
   struct Arena arena;
@@ -157,6 +179,7 @@ TEST_LIST = {
     {"extract keeps hanging sample indent", test_extract_keeps_hanging_sample_indent},
     {"extract drops starred closer line", test_extract_drops_starred_closer_line},
     {"emit hanging trails closer", test_emit_hanging_trails_closer},
+    {"has opener closer for one line starred", test_has_opener_closer_for_one_line_starred},
     {"emit omits first line indent", test_emit_omits_first_line_indent},
     {NULL, NULL},
 };
