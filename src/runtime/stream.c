@@ -1,7 +1,6 @@
 #include "runtime/stream.h"
 
 #include <errno.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,9 +9,6 @@
 
 /** Number of bytes requested from the stream at a time. */
 enum { STREAM_READ_CHUNK_SIZE = 8192 };
-
-/** Largest stream content length that leaves room for a `NUL` terminator. */
-static const size_t STREAM_DATA_LEN_MAX = SIZE_MAX - 1;
 
 int stream_read_all(FILE* stream,
                     char** data_out,
@@ -32,12 +28,6 @@ int stream_read_all(FILE* stream,
     if (chunk_len > 0) {
       if (memchr(chunk, '\0', chunk_len) != NULL) {
         (void)error_report(reason, reason_len, "contains an embedded NUL byte");
-        goto cleanup;
-      }
-      // One byte beyond the payload is always required for the terminator.
-      if (chunk_len > STREAM_DATA_LEN_MAX - buffer.len) {
-        (void)error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %zu bytes",
-                           STREAM_DATA_LEN_MAX, SIZE_MAX);
         goto cleanup;
       }
       if (string_buffer_append_len(&buffer, chunk, chunk_len) != 0) {

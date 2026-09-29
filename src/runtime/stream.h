@@ -19,7 +19,7 @@ enum { STREAM_REASON_SIZE = 256 };
  * @param data_len_out Receives the byte count excluding the terminator. Must not be `NULL`.
  * @param reason       Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  * @param reason_len   Size of `reason` in bytes.
- * @return `0` on success, or `-1` on a read, allocation, size, or embedded-`NUL` failure.
+ * @return `0` on success, or `-1` on a read, allocation, or embedded-`NUL` failure.
  */
 int stream_read_all(FILE* stream,
                     char** data_out,
