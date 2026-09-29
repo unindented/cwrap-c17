@@ -130,9 +130,6 @@ static size_t atom_length_at(const char* text, size_t text_len, size_t index)
     __attribute__((nonnull(1)));
 
 size_t atom_column_width(const char* text, size_t text_len) {
-  if (text_len == 0) {
-    return 0;
-  }
   size_t columns = 0;
   size_t i = 0;
   while (i < text_len) {
