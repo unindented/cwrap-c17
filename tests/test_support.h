@@ -1,0 +1,93 @@
+#ifndef CWRAP_TEST_SUPPORT_H
+#define CWRAP_TEST_SUPPORT_H
+
+#include <stddef.h>
+#include <stdio.h>
+
+/**
+ * Result a test wrapper returns when its own setup or teardown fails rather than the call it wraps.
+ * It is none of the `0`, `1` and `2` exit codes and neither the `0` nor the `-1` an action
+ * returns, so a plumbing failure cannot pass for a result of the call under test.
+ */
+enum { TEST_PLUMBING_FAILED = 255 };
+
+/**
+ * @brief Creates a temporary fixture file holding `contents`.
+ *
+ * The returned pointer aliases the caller's writable template and must not be freed. The caller
+ * unlinks the file.
+ *
+ * @param file_path    Writable `mkstemp` template. Receives the created file path. Must not be
+ *                     `NULL`.
+ * @param contents     Bytes to write. Must hold at least `contents_len` bytes. Must not be `NULL`.
+ * @param contents_len Number of bytes in `contents`.
+ * @return `file_path` on success, or `NULL` after recording a test-plumbing failure, with no file
+ *         left behind.
+ */
+const char* init_fixture_file(char file_path[static 1], const char* contents, size_t contents_len);
+
+/** A standard stream redirected by `capture_begin` or `capture_begin_unwritable`. */
+struct StreamCapture {
+  /** Redirected stream, `stdout` or `stderr`. */
+  FILE* stream;
+
+  /** Duplicate of the stream's original descriptor, which `capture_end` restores and closes. */
+  int saved_fd;
+
+  /** Anonymous file that receives the stream, or `NULL` when the stream is unwritable. */
+  FILE* capture;
+};
+
+/**
+ * @brief Redirects a standard stream into an anonymous file until `capture_end`.
+ *
+ * Flushes the stream first, so only text written after the call is captured.
+ *
+ * @param stream      Stream to redirect, `stdout` or `stderr`. Must not be `NULL`.
+ * @param capture_out Receives the redirection state on success. Must not be `NULL`.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure, with the stream left
+ *         unredirected.
+ */
+int capture_begin(FILE* stream, struct StreamCapture* capture_out);
+
+/**
+ * @brief Redirects a standard stream to a read-only descriptor until `capture_end`.
+ *
+ * Every write that reaches the descriptor fails with `EBADF`, which makes a stream write failure
+ * deterministic. `capture_end` discards the text the failed writes leave buffered, so it never
+ * reaches the restored stream.
+ *
+ * @param stream      Stream to redirect, `stdout` or `stderr`. Must not be `NULL`.
+ * @param capture_out Receives the redirection state on success. Must not be `NULL`.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure, with the stream left
+ *         unredirected.
+ */
+int capture_begin_unwritable(FILE* stream, struct StreamCapture* capture_out);
+
+/**
+ * @brief Restores a redirected stream and reads what it captured.
+ *
+ * Flushes the stream into the capture, restores the original descriptor, and clears the stream's
+ * error indicator, which a write-failure path under test may have set.
+ *
+ * @param capture      State `capture_begin` or `capture_begin_unwritable` wrote. Must not be
+ *                     `NULL`.
+ * @param text_out     Buffer that receives the terminated captured text. Unused, and may be `NULL`,
+ *                     for a capture `capture_begin_unwritable` began.
+ * @param text_out_len Size of `text_out` in bytes. Must be non-zero when `text_out` is used.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure. The stream is restored
+ *         either way.
+ */
+int capture_end(struct StreamCapture* capture, char* text_out, size_t text_out_len);
+
+/**
+ * @brief Reads an anonymous capture stream.
+ *
+ * @param capture      Stream to rewind and read. Must not be `NULL`.
+ * @param text_out     Buffer that receives terminated captured text. Must not be `NULL`.
+ * @param text_out_len Size of `text_out` in bytes. Must be non-zero.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure.
+ */
+int read_capture(FILE* capture, char* text_out, size_t text_out_len);
+
+#endif

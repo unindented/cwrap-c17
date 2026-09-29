@@ -5,7 +5,9 @@ include_guard(GLOBAL)
 function(cwrap_add_unit_test module)
   set(target "cwrap_unit_${module}")
   add_executable(${target} "test_${module}.c")
-  target_link_libraries(${target} PRIVATE cwrap_build_tests cwrap_vendor_acutest cwrap_app)
+  target_link_libraries(
+    ${target} PRIVATE cwrap_build_tests cwrap_vendor_acutest cwrap_test_support cwrap_app
+  )
 
   add_test(NAME "cwrap.${module}" COMMAND ${target} WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
   set_tests_properties(

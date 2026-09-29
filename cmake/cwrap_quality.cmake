@@ -52,6 +52,9 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/runtime/stream.h"
     "${PROJECT_SOURCE_DIR}/src/runtime/test_fs.c"
     "${PROJECT_SOURCE_DIR}/src/runtime/test_stream.c"
+    "${PROJECT_SOURCE_DIR}/tests/test_support.c"
+    "${PROJECT_SOURCE_DIR}/tests/test_support.h"
+    "${PROJECT_SOURCE_DIR}/tests/test_test_support.c"
 )
 set(cwrap_configured_c_source "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.c.in")
 

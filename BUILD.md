@@ -10,7 +10,7 @@ The top-level CMake file controls the build. It sets project policy, loads build
 | --- | --- |
 | `src/CMakeLists.txt` | Build the private application library and the `cwrap` executable |
 | `src/*/CMakeLists.txt` | Add sources, header file sets, and local unit tests |
-| `tests/CMakeLists.txt` | Add the golden and idempotence test suites |
+| `tests/CMakeLists.txt` | Add the golden and idempotence test suites and the shared unit-test support library |
 | `vendor/CMakeLists.txt` | Build each vendored dependency |
 | `cmake/cwrap_build_profiles.cmake` | Set warnings, optimization, fortification, and sanitizers |
 | `cmake/cwrap_quality.cmake` | Configure formatting and static analysis |
@@ -87,7 +87,9 @@ This duplication is deliberate. A configure-time glob can omit a new file until 
 
 `CWRAP_BUILD_TESTING` controls test creation. It is true by default for a top-level build. It is false by default for a child build.
 
-Each source directory adds its local unit tests. The top-level `tests/` directory adds only the golden and idempotence test suites. Each CTest case has a `cwrap` label. It also has a `unit`, `golden`, or `idempotent` label.
+Each source directory adds its local unit tests. The top-level `tests/` directory adds the golden and idempotence test suites and `cwrap_test_support`. Each CTest case has a `cwrap` label. It also has a `unit`, `golden`, or `idempotent` label.
+
+`cwrap_test_support` holds the unit-test plumbing that several `test_*.c` files need: a fixture-file creator, standard-stream capture and restore, and a capture-stream reader. Its own unit test is `tests/test_test_support.c`. `test_support.c` defines `TEST_NO_MAIN`, so acutest's `main` and run state stay in each test executable's own translation unit and the link resolves `acutest_check_` and `acutest_abort_` against it. A failure raised inside the support library is reported against `test_support.c` and fails the test that reached it.
 
 A parent that enables `cwrap` tests must call `enable_testing()` in its top-level `CMakeLists.txt`. CTest starts discovery at the build root. A child call cannot create the root test file. CMake prints this requirement when a child enables tests.
 

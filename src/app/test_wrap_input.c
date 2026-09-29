@@ -12,38 +12,12 @@
 #include "core/error.h"
 #include "runtime/fs.h"
 #include "shared/string_buffer.h"
-
-/**
- * @brief Creates a temporary source fixture.
- *
- * @param file_path Writable `mkstemp` template. Receives the created path. Must not be `NULL`.
- * @param source    Terminated source text to write. Must not be `NULL`.
- * @return `0` on success, or `-1` after recording a test-plumbing failure.
- */
-static int init_source_fixture(char file_path[static 1], const char* source) {
-  const int fd = mkstemp(file_path);
-  TEST_ASSERT(fd >= 0);
-  if (fd < 0) {
-    return -1;
-  }
-  const int close_rc = close(fd);
-  TEST_CHECK(close_rc == 0);
-  if (close_rc != 0) {
-    (void)unlink(file_path);
-    return -1;
-  }
-  const int rc = fs_write_file(file_path, source, strlen(source), NULL, 0);
-  TEST_CHECK(rc == 0);
-  if (rc != 0) {
-    (void)unlink(file_path);
-  }
-  return rc;
-}
+#include "test_support.h"
 
 // Stable file input succeeds silently in check mode.
 static void test_file_check_ok_result(void) {
   char file_path[] = "/tmp/cwrap-wrap-input.XXXXXX";
-  if (init_source_fixture(file_path, "// one two\n") != 0) {
+  if (init_fixture_file(file_path, "// one two\n", strlen("// one two\n")) == NULL) {
     return;
   }
   struct StringBuffer error_buffer;
@@ -83,7 +57,7 @@ static void test_stream_check_ok_result(void) {
 // File check mode retains the distinct changed result and path attribution.
 static void test_file_check_change_result(void) {
   char file_path[] = "/tmp/cwrap-wrap-input.XXXXXX";
-  if (init_source_fixture(file_path, "// one\n// two\n") != 0) {
+  if (init_fixture_file(file_path, "// one\n// two\n", strlen("// one\n// two\n")) == NULL) {
     return;
   }
   struct StringBuffer error_buffer;
@@ -127,7 +101,7 @@ static void test_stream_check_change_result(void) {
 // A file read error remains distinct from a check-mode change and keeps the existing diagnostic.
 static void test_file_read_error_result(void) {
   char file_path[] = "/tmp/cwrap-wrap-input.XXXXXX";
-  if (init_source_fixture(file_path, "") != 0) {
+  if (init_fixture_file(file_path, "", 0) == NULL) {
     return;
   }
   (void)unlink(file_path);

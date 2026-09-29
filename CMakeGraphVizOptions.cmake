@@ -17,6 +17,7 @@ set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
     "cwrap_build_tests"
+    "cwrap_test_support"
     "cwrap_unit_.*"
     "cwrap_vendor_acutest"
 )

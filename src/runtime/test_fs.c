@@ -14,43 +14,7 @@
 #include <unistd.h>
 
 #include "runtime/fs.h"
-
-/**
- * @brief Writes bytes to a unique temporary file.
- *
- * @param text     Bytes to write. May be `NULL` only when `text_len` is zero.
- * @param text_len Number of bytes to write.
- * @return An allocated path the caller must unlink and free, or `NULL` on test-plumbing failure.
- */
-static char* write_temp_file(const char* text, size_t text_len) {
-  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
-  const int fd = mkstemp(file_path);
-  TEST_ASSERT(fd >= 0);
-  if (fd < 0) {
-    return NULL;
-  }
-  const int close_rc = close(fd);
-  TEST_CHECK(close_rc == 0);
-  if (close_rc != 0) {
-    (void)unlink(file_path);
-    return NULL;
-  }
-  char* copy = malloc(sizeof(file_path));
-  TEST_ASSERT(copy != NULL);
-  if (copy == NULL) {
-    (void)unlink(file_path);
-    return NULL;
-  }
-  memcpy(copy, file_path, sizeof(file_path));
-  const int write_rc = fs_write_file(copy, text, text_len, NULL, 0);
-  TEST_CHECK(write_rc == 0);
-  if (write_rc != 0) {
-    (void)unlink(copy);
-    free(copy);
-    return NULL;
-  }
-  return copy;
-}
+#include "test_support.h"
 
 /**
  * @brief Formats the system reason an `fs` action reports.
@@ -77,9 +41,8 @@ static const char* expected_errno_reason(char buf[static FS_REASON_SIZE], int er
 
 // An empty file reads back as zero bytes with a valid terminator.
 static void test_read_file_accepts_empty(void) {
-  char* file_path = write_temp_file("", 0);
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
+  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(file_path, "", 0) == NULL) {
     return;
   }
   char* file_data = NULL;
@@ -92,15 +55,13 @@ static void test_read_file_accepts_empty(void) {
     free(file_data);
   }
   (void)unlink(file_path);
-  free(file_path);
 }
 
 // `fs_read_file` rejects a missing path and a directory, leaving outputs untouched, and reports the
 // two as different reasons rather than one indistinguishable failure.
 static void test_read_file_rejects_missing_and_non_regular(void) {
-  char* missing_path = write_temp_file("", 0);
-  TEST_ASSERT(missing_path != NULL);
-  if (missing_path == NULL) {
+  char missing_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(missing_path, "", 0) == NULL) {
     return;
   }
   (void)unlink(missing_path);
@@ -124,7 +85,6 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
-  free(missing_path);
 }
 
 // A file carrying an embedded `NUL` is rejected, leaving outputs untouched, and says so. This is
@@ -132,9 +92,8 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
 // Accepting it would silently truncate wrapped output at the `NUL`.
 static void test_read_file_rejects_embedded_nul(void) {
   const char payload[] = {'a', '\0', 'b'};
-  char* file_path = write_temp_file(payload, sizeof(payload));
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
+  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(file_path, payload, sizeof(payload)) == NULL) {
     return;
   }
   char sentinel[] = "unchanged";
@@ -147,15 +106,13 @@ static void test_read_file_rejects_embedded_nul(void) {
   // The reason names the policy. No system error occurred and the file reads fine otherwise.
   TEST_CHECK(strcmp(reason, "contains an embedded NUL byte") == 0);
   (void)unlink(file_path);
-  free(file_path);
 }
 
 // A written file reads back byte-for-byte, and a successful write and a successful read each leave
 // the reason untouched.
 static void test_write_then_read_round_trips(void) {
-  char* file_path = write_temp_file("hello", 5);
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
+  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(file_path, "hello", 5) == NULL) {
     return;
   }
   char reason[FS_REASON_SIZE] = "untouched";
@@ -177,12 +134,11 @@ static void test_write_then_read_round_trips(void) {
     free(file_data);
   }
   (void)unlink(file_path);
-  free(file_path);
 }
 
 // A file that did not exist gets mode `0666` reduced by the umask rather than `mkstemp`'s `0600`,
-// and no temporary survives the write. `write_temp_file` pre-creates its file, so this is the only
-// test whose write succeeds on the no-existing-file path.
+// and no temporary survives the write. `init_fixture_file` pre-creates its file, so this is the
+// only test whose write succeeds on the no-existing-file path.
 static void test_write_file_creates_file_with_umask_mode(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-mode.XXXXXX";
   const char* root_dir = mkdtemp(root_dir_template);
@@ -214,25 +170,13 @@ static void test_write_file_creates_file_with_umask_mode(void) {
 
 // Atomic replacement follows a symbolic link and leaves the link itself in place.
 static void test_write_file_follows_symbolic_link(void) {
-  char* target_path = write_temp_file("before", strlen("before"));
-  TEST_ASSERT(target_path != NULL);
-  if (target_path == NULL) {
+  char target_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(target_path, "before", strlen("before")) == NULL) {
     return;
   }
   char link_path[] = "/tmp/cwrap-fs-link.XXXXXX";
-  const int link_fd = mkstemp(link_path);
-  TEST_ASSERT(link_fd >= 0);
-  if (link_fd < 0) {
+  if (init_fixture_file(link_path, "", 0) == NULL) {
     (void)unlink(target_path);
-    free(target_path);
-    return;
-  }
-  const int close_rc = close(link_fd);
-  TEST_CHECK(close_rc == 0);
-  if (close_rc != 0) {
-    (void)unlink(link_path);
-    (void)unlink(target_path);
-    free(target_path);
     return;
   }
   (void)unlink(link_path);
@@ -253,7 +197,6 @@ static void test_write_file_follows_symbolic_link(void) {
 
   (void)unlink(link_path);
   (void)unlink(target_path);
-  free(target_path);
 }
 
 // A failed replacement leaves the existing destination byte-for-byte intact.
@@ -262,9 +205,8 @@ static void test_write_file_failure_preserves_existing_file(void) {
   char replacement[2048];
   memset(original, 'a', sizeof(original));
   memset(replacement, 'b', sizeof(replacement));
-  char* file_path = write_temp_file(original, sizeof(original));
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
+  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  if (init_fixture_file(file_path, original, sizeof(original)) == NULL) {
     return;
   }
 
@@ -283,7 +225,6 @@ static void test_write_file_failure_preserves_existing_file(void) {
   }
   if (child < 0) {
     (void)unlink(file_path);
-    free(file_path);
     return;
   }
   int status = 0;
@@ -300,7 +241,6 @@ static void test_write_file_failure_preserves_existing_file(void) {
     free(file_data);
   }
   (void)unlink(file_path);
-  free(file_path);
 }
 
 // `fs_write_file` fails when the parent directory is missing and when the target is itself a

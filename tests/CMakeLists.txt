@@ -1,6 +1,15 @@
 # The golden and idempotence test suites use several modules. Keep them in the top-level `tests/`
 # directory.
 
+# Unit-test plumbing shared by the per-module test executables in `src/`.
+add_library(cwrap_test_support STATIC test_support.c)
+target_include_directories(cwrap_test_support PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
+target_link_libraries(cwrap_test_support PRIVATE cwrap_build_tests cwrap_vendor_acutest cwrap_app)
+if(PROJECT_IS_TOP_LEVEL)
+  cwrap_enable_test_analysis(cwrap_test_support)
+endif()
+cwrap_add_unit_test(test_support)
+
 add_test(
   NAME cwrap.golden
   COMMAND
