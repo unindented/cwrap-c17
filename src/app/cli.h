@@ -68,7 +68,10 @@ struct CliOptions {
  *
  * `paths` aliases the positional tail of the reordered `argv`, so the result stays valid only while
  * that argument vector does. `error_message` is a fixed inline buffer holding a formatted copy, so
- * the diagnostic itself does not retain a pointer into copt's scratch storage.
+ * the diagnostic itself does not retain a pointer into copt's scratch storage. That is also why it
+ * is an array rather than a `const char*`. A short option's spelling lives in the parser that
+ * `cli_parse` keeps on its own stack, so a later change to avoid the copy would hand back a pointer
+ * that dangles as soon as `cli_parse` returns.
  *
  * @param options Receives the fully resolved parse result. Must not be `NULL`.
  * @param argc    Argument count.

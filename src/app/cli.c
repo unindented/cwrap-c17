@@ -236,7 +236,7 @@ static int cli_parse_require_no_attached_value(struct CliOptions* options,
     return 0;
   }
   // Within a short cluster the value belongs to the single letter directly before the `=`, so
-  // `-ci=1` is `--check` followed by an in-place value rather than a value glued to `--check`.
+  // `-cw=4` is `--check` followed by a wrapping column rather than a value glued to `--check`.
   // Every earlier letter in the cluster is a separate option that received no value. A long option
   // owns any `=` in its own element, so it needs no such test.
   const bool is_short_option = element[1] != '-';
@@ -253,12 +253,29 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
   const char* value = copt_arg(opt);
   size_t width = 0;
   if (value == NULL) {
-    // `copt_curopt` returns a pointer into `opt`'s own scratch storage for a short option. Format
-    // it before the loop advances, while that spelling is still valid.
+    // `copt_curopt` returns a pointer into `opt`'s own scratch storage for a short option. That
+    // pointer is valid only until the next `copt_next`, so the code must format it before the loop
+    // advances. `record_error` copies into `options->error_message` on the spot. This is also the
+    // one site that reaches `copt_curopt` after a copt call that can mutate the parser, namely
+    // `copt_arg` on the line above. The `copt_opt` tests in `cli_parse` take a `const struct copt*`
+    // and so cannot invalidate `curopt`. `copt_arg` takes a mutable one and is safe here only
+    // because it never touches `curopt`. copt's own contract does not promise that, so recheck it
+    // on a vendor bump.
+    //
+    // A negative value also lands here rather than in the positive-integer check below. copt reads
+    // `-1` as an option cluster, so `--width` gets no argument at all. `--width -1` therefore
+    // reports a missing wrapping column rather than an invalid one. The code accepts this rather
+    // than working around it, because claiming `-1` as this option's argument would mean
+    // second-guessing the vendored parser's own split between options and arguments.
     record_error(options, "option '%s' requires a wrapping column", copt_curopt(opt));
   } else if (parse_size(value, &width) != 0 || width == 0) {
+    // The value is raw `argv`, bounded only by `ARG_MAX`, so it trails the reason. A leading value
+    // would make this the one value-carrying CLI message whose reason could truncate away.
     record_error(options, "option '--width' must be a positive integer: '%s'", value);
   } else if (width > (size_t)WRAP_COLUMN_MAX) {
+    // The message prints both values as parsed numbers rather than as the raw argument, because a
+    // `size_t` is bounded at twenty digits and so cannot truncate the limit off the end. This
+    // matches `exceeds max readable size (...) at ...` in `fs_read_file`, the closest sibling.
     record_error(options, "option '--width' exceeds max wrapping column (%zu) at %zu",
                  (size_t)WRAP_COLUMN_MAX, width);
   } else {

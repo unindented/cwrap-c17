@@ -41,6 +41,8 @@ enum ExitCode cli_dispatch(int argc, char** argv) {
       return exit_code_from_print(cli_print_version(stdout), "version");
     case CLI_ACTION_HELP: {
       // `CLI_ACTION_HELP` means `cli_parse` saw `--help`, so `argc >= 2` and `argv[0]` is a string.
+      // The `argc == 0` case that ISO C permits never arrives here. With no arguments there is no
+      // `--help` to see, and `cli_parse` returns `CLI_ACTION_RUN` on standard input instead.
       const char* program_name = argv[0];
       return exit_code_from_print(cli_print_usage(stdout, program_name), "usage");
     }
@@ -69,9 +71,11 @@ static enum ExitCode exit_code_from_print(int print_rc, const char* subject) {
   if (print_rc == 0) {
     return EXIT_CODE_OK;
   }
-  // This mapping reports only real write failures, because both printers end in an `fflush` plus
-  // `ferror` check. A printer added without that pair could lose output to a closed pipe or full
-  // disk and still claim success here.
+  // This mapping of a non-zero result to a failure reports only real write failures, because every
+  // printer this program has ends in an `fflush` plus `ferror` check: `cli_print_version` and
+  // `cli_print_usage`. A printer added without that pair returns `0` on a write lost to a closed
+  // pipe or a full disk. Both this exit status and this diagnostic would then be skipped, and the
+  // program would claim success.
   char message[ERROR_MESSAGE_SIZE];
   fprintf(stderr, "failed to write %s to 'stdout': %s\n", subject,
           error_system_message(message, sizeof(message), errno));
