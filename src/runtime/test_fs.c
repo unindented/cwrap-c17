@@ -69,10 +69,86 @@ static const char* expected_errno_reason(char buf[static FS_REASON_SIZE], int er
 
 // The `NULL, 0` reason arguments throughout this file are the documented option, not forgotten
 // assertions. `fs`'s contract lets `reason` be `NULL` when `reason_len` is 0, and a fixture write
-// that fails is a broken test rather than behavior under test. Calls that assert a reason pass a
-// real buffer. No test takes the `NULL`-reason path on a failing call: that pair reaches
-// `error_report`, pinned once by `test_report_error_accepts_null_buffer` instead of once per
-// action.
+// that fails is a broken test rather than behavior under test. This is the one suite whose subject
+// *is* that diagnostic, so the calls that do assert a reason pass a real buffer. No test here takes
+// the `NULL`-reason path on a *failing* call. That is deliberate rather than a gap: the pair
+// reaches `error_report`, pinned once at that boundary by `test_report_error_accepts_null_buffer`
+// instead of once per `fs` action.
+
+// An empty file reads back as zero bytes with a valid terminator.
+static void test_read_file_accepts_empty(void) {
+  char* file_path = write_temp_file("", 0);
+  TEST_ASSERT(file_path != NULL);
+  if (file_path == NULL) {
+    return;
+  }
+  char* file_data = NULL;
+  size_t file_len = 123;
+  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_ASSERT(file_data != NULL);
+  if (file_data != NULL) {
+    TEST_CHECK(file_len == 0);
+    TEST_CHECK(strcmp(file_data, "") == 0);
+    free(file_data);
+  }
+  (void)unlink(file_path);
+  free(file_path);
+}
+
+// `fs_read_file` rejects a missing path and a directory, leaving outputs untouched, and reports the
+// two as different reasons rather than one indistinguishable failure.
+static void test_read_file_rejects_missing_and_non_regular(void) {
+  char* missing_path = write_temp_file("", 0);
+  TEST_ASSERT(missing_path != NULL);
+  if (missing_path == NULL) {
+    return;
+  }
+  (void)unlink(missing_path);
+
+  char sentinel[] = "unchanged";
+  char* file_data = sentinel;
+  size_t file_len = 999;
+  char reason[FS_REASON_SIZE] = "";
+  TEST_CHECK(fs_read_file(missing_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(file_data == sentinel);
+  TEST_CHECK(file_len == 999);
+  char expected[FS_REASON_SIZE];
+  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
+
+  // A directory is not a regular file. This is a first-party rejection, not a system error, so it
+  // carries its own wording.
+  file_data = sentinel;
+  file_len = 999;
+  reason[0] = '\0';
+  TEST_CHECK(fs_read_file("/tmp", &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(file_data == sentinel);
+  TEST_CHECK(file_len == 999);
+  TEST_CHECK(strcmp(reason, "not a regular file") == 0);
+  free(missing_path);
+}
+
+// A file carrying an embedded `NUL` is rejected, leaving outputs untouched, and says so. This is
+// the boundary that establishes the `NUL`-free text invariant every downstream `strlen` relies on.
+// Accepting it would silently truncate wrapped output at the `NUL`.
+static void test_read_file_rejects_embedded_nul(void) {
+  const char payload[] = {'a', '\0', 'b'};
+  char* file_path = write_temp_file(payload, sizeof(payload));
+  TEST_ASSERT(file_path != NULL);
+  if (file_path == NULL) {
+    return;
+  }
+  char sentinel[] = "unchanged";
+  char* file_data = sentinel;
+  size_t file_len = 999;
+  char reason[FS_REASON_SIZE] = "";
+  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(file_data == sentinel);
+  TEST_CHECK(file_len == 999);
+  // The reason names the policy. No system error occurred and the file reads fine otherwise.
+  TEST_CHECK(strcmp(reason, "contains an embedded NUL byte") == 0);
+  (void)unlink(file_path);
+  free(file_path);
+}
 
 // A written file reads back byte-for-byte, and a successful write and a successful read each leave
 // the reason untouched.
@@ -105,8 +181,8 @@ static void test_write_then_read_round_trips(void) {
 }
 
 // A file that did not exist gets mode `0666` reduced by the umask rather than `mkstemp`'s `0600`,
-// and no temporary survives the write. `write_temp_file` pre-creates its file, so only this test
-// reaches the no-existing-file path.
+// and no temporary survives the write. `write_temp_file` pre-creates its file, so this is the only
+// test whose write succeeds on the no-existing-file path.
 static void test_write_file_creates_file_with_umask_mode(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-mode.XXXXXX";
   const char* root_dir = mkdtemp(root_dir_template);
@@ -200,7 +276,10 @@ static void test_write_file_failure_preserves_existing_file(void) {
     if (setrlimit(RLIMIT_FSIZE, &limit) != 0) {
       _exit(2);
     }
-    _exit(fs_write_file(file_path, replacement, sizeof(replacement), NULL, 0) == -1 ? 0 : 3);
+    char reason[FS_REASON_SIZE];
+    const int write_rc =
+        fs_write_file(file_path, replacement, sizeof(replacement), reason, sizeof(reason));
+    _exit(write_rc == -1 ? 0 : 3);
   }
   if (child < 0) {
     (void)unlink(file_path);
@@ -222,76 +301,6 @@ static void test_write_file_failure_preserves_existing_file(void) {
   }
   (void)unlink(file_path);
   free(file_path);
-}
-
-// An empty file reads back as zero bytes with a valid terminator.
-static void test_read_file_accepts_empty(void) {
-  char* file_path = write_temp_file("", 0);
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
-    return;
-  }
-  char* file_data = NULL;
-  size_t file_len = 99;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(file_len == 0);
-    TEST_CHECK(strcmp(file_data, "") == 0);
-    free(file_data);
-  }
-  (void)unlink(file_path);
-  free(file_path);
-}
-
-// A file carrying an embedded `NUL` is rejected, leaving outputs untouched, and says so. This is
-// the boundary that establishes the `NUL`-free text invariant every downstream `strlen` relies on.
-// Accepting it would silently truncate wrapped output at the `NUL`.
-static void test_read_file_rejects_embedded_nul(void) {
-  const char payload[] = {'a', '\0', 'b'};
-  char* file_path = write_temp_file(payload, sizeof(payload));
-  TEST_ASSERT(file_path != NULL);
-  if (file_path == NULL) {
-    return;
-  }
-  char sentinel[] = "unchanged";
-  char* file_data = sentinel;
-  size_t file_len = 99;
-  char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
-  TEST_CHECK(file_data == sentinel);
-  TEST_CHECK(file_len == 99);
-  TEST_CHECK(strcmp(reason, "contains an embedded NUL byte") == 0);
-  (void)unlink(file_path);
-  free(file_path);
-}
-
-// `fs_read_file` rejects a missing path and a directory, leaving outputs untouched, and reports the
-// two as different reasons rather than one indistinguishable failure.
-static void test_read_file_rejects_missing_and_non_regular(void) {
-  char* missing_path = write_temp_file("", 0);
-  TEST_ASSERT(missing_path != NULL);
-  if (missing_path == NULL) {
-    return;
-  }
-  (void)unlink(missing_path);
-
-  char sentinel[] = "unchanged";
-  char* file_data = sentinel;
-  size_t file_len = 99;
-  char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(missing_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
-  TEST_CHECK(file_data == sentinel);
-  TEST_CHECK(file_len == 99);
-  char expected[FS_REASON_SIZE];
-  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
-
-  reason[0] = '\0';
-  TEST_CHECK(fs_read_file("/tmp", &file_data, &file_len, reason, sizeof(reason)) == -1);
-  TEST_CHECK(file_data == sentinel);
-  TEST_CHECK(file_len == 99);
-  TEST_CHECK(strcmp(reason, "not a regular file") == 0);
-  free(missing_path);
 }
 
 // `fs_write_file` fails when the parent directory is missing and when the target is itself a
@@ -337,13 +346,13 @@ static void test_write_file_rejects_missing_parent_and_dir_target(void) {
 }
 
 TEST_LIST = {
+    {"read file accepts empty", test_read_file_accepts_empty},
+    {"read file rejects missing and non-regular", test_read_file_rejects_missing_and_non_regular},
+    {"read file rejects embedded nul", test_read_file_rejects_embedded_nul},
     {"write then read round trips", test_write_then_read_round_trips},
     {"write file creates file with umask mode", test_write_file_creates_file_with_umask_mode},
     {"write file follows symbolic link", test_write_file_follows_symbolic_link},
     {"write file failure preserves existing file", test_write_file_failure_preserves_existing_file},
-    {"read file accepts empty", test_read_file_accepts_empty},
-    {"read file rejects embedded nul", test_read_file_rejects_embedded_nul},
-    {"read file rejects missing and non-regular", test_read_file_rejects_missing_and_non_regular},
     {"write file rejects missing parent and dir target",
      test_write_file_rejects_missing_parent_and_dir_target},
     {NULL, NULL},
