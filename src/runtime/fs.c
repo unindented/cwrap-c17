@@ -4,6 +4,7 @@
 #include "runtime/fs.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,7 +18,7 @@
 /**
  * @brief Reads exactly `data_len` bytes into `data`, verifying the file did not change underneath.
  *
- * `stat` and `fread` are two observations of a file another process may be writing, so a read that
+ * `fstat` and `fread` are two observations of a file another process may be writing, so a read that
  * returns anything other than `data_len` bytes is a changed file rather than a partial success.
  * Both directions are rejected: too few bytes means the file shrank, and one readable byte past
  * `data_len` means it grew. An embedded `NUL` is rejected here too, so every caller may treat the
@@ -25,7 +26,7 @@
  *
  * @param data       Buffer of at least `data_len` bytes that receives the file contents. Must not
  *                   be `NULL`.
- * @param data_len   Number of bytes to read, taken from the `stat` that preceded the open.
+ * @param data_len   Number of bytes to read, taken from the `fstat` of the open file.
  * @param fp         Stream positioned at the start of the file. Must not be `NULL`.
  * @param reason     Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  * @param reason_len Size of `reason` in bytes.
@@ -84,33 +85,52 @@ int fs_read_file(const char* file_path,
                  size_t* data_len_out,
                  char* reason,
                  size_t reason_len) {
-  struct stat st;
-  if (stat(file_path, &st) != 0) {
+  // Open without blocking and inspect the descriptor rather than the path, so the file checked is
+  // the file read. A path swapped to a FIFO would otherwise block the open waiting for a writer.
+  // The flag is cleared again once the file is known to be regular.
+  const int fd = open(file_path, O_RDONLY | O_NONBLOCK);
+  if (fd < 0) {
     return fs_reason_errno(reason, reason_len, errno);
   }
-  if (!S_ISREG(st.st_mode)) {
-    return error_report(reason, reason_len, "not a regular file");
+  struct stat st;
+  int rc = 0;
+  if (fstat(fd, &st) != 0) {
+    rc = fs_reason_errno(reason, reason_len, errno);
+  } else if (!S_ISREG(st.st_mode)) {
+    // `error_report` returns `-1`, but it lives in another translation unit, so the analyzer
+    // cannot see that and would follow a path where these checks leave `rc` at 0.
+    (void)error_report(reason, reason_len, "not a regular file");
+    rc = -1;
+  } else if ((uintmax_t)st.st_size > (uintmax_t)SIZE_MAX - 1) {
+    // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to
+    // 0 and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
+    // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A
+    // negative size, which no regular file reports, would widen past the limit and fail here as
+    // well.
+    (void)error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %ju bytes",
+                       SIZE_MAX - 1, (uintmax_t)st.st_size);
+    rc = -1;
   }
-  // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to 0
-  // and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
-  // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A negative
-  // size, which no regular file reports, would widen past the limit and fail here as well.
-  if ((uintmax_t)st.st_size > (uintmax_t)SIZE_MAX - 1) {
-    return error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %ju bytes",
-                        SIZE_MAX - 1, (uintmax_t)st.st_size);
+  if (rc == 0 && fcntl(fd, F_SETFL, 0) != 0) {
+    rc = fs_reason_errno(reason, reason_len, errno);
+  }
+  FILE* fp = rc == 0 ? fdopen(fd, "rb") : NULL;
+  if (fp == NULL) {
+    if (rc == 0) {
+      (void)fs_reason_errno(reason, reason_len, errno);
+    }
+    // The failure above is the one reported, so a close error on this path adds nothing.
+    (void)close(fd);
+    return -1;
   }
 
   const size_t size = (size_t)st.st_size;
-  FILE* fp = fopen(file_path, "rb");
-  if (fp == NULL) {
-    return fs_reason_errno(reason, reason_len, errno);
-  }
 
   // Use `malloc`, not `calloc`. `fs_read_file_bytes` writes all `size` bytes or fails, so only the
   // terminator needs to be zero, and zero-filling first would mean a second pass over the largest
   // file this program reads.
   char* data = malloc(size + 1);
-  int rc = -1;
+  rc = -1;
   if (data == NULL) {
     (void)error_report(reason, reason_len, "out of memory");
   } else {
@@ -258,13 +278,13 @@ static int fs_read_file_bytes(char* data,
   if (ferror(fp) != 0) {
     (void)fs_reason_errno(reason, reason_len, read_errno == 0 ? EIO : read_errno);
   } else if (nread != data_len) {
-    // No stream error, so the bytes ran out. The file shrank after the caller's `stat`.
+    // No stream error, so the bytes ran out. The file shrank after the caller's `fstat`.
     (void)error_report(reason, reason_len, "shrank while being read");
   } else if (feof(fp) != 0) {
     // The read already consumed the whole file, so it cannot have grown.
     rc = 0;
   } else {
-    // `fread` stops at `data_len`, so a file that grew between the caller's `stat` and here would
+    // `fread` stops at `data_len`, so a file that grew between the caller's `fstat` and here would
     // read as a silently truncated copy. One more byte tells the two apart. Nothing left to read
     // means the size still matches, while any byte at all means the file changed underneath us.
     char extra = 0;

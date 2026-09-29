@@ -23,6 +23,9 @@ enum { FS_REASON_SIZE = 256 };
  * on success. It rejects non-regular files and files that change size during a read. It never
  * reports a partial copy as a successful read.
  *
+ * It opens the path without blocking and checks the opened descriptor, so the file inspected is the
+ * file read and a FIFO is rejected rather than waited on.
+ *
  * It also rejects a file containing an embedded `NUL` byte. This is the boundary that establishes
  * the codebase's text invariant. Every owned string is a `NUL`-free C string, so downstream payload
  * helpers can use terminated-string operations without truncating the source.

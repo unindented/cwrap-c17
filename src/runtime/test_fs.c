@@ -87,6 +87,27 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
 }
 
+// A FIFO is rejected as not a regular file instead of blocking the open until a writer opens it,
+// leaving the outputs untouched.
+static void test_read_file_rejects_fifo(void) {
+  char fifo_path[] = "/tmp/cwrap-fs-fifo.XXXXXX";
+  if (init_fixture_file(fifo_path, "", 0) == NULL) {
+    return;
+  }
+  (void)unlink(fifo_path);
+  TEST_ASSERT(mkfifo(fifo_path, 0600) == 0);
+
+  char sentinel[] = "unchanged";
+  char* file_data = sentinel;
+  size_t file_len = 999;
+  char reason[FS_REASON_SIZE] = "";
+  TEST_CHECK(fs_read_file(fifo_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(file_data == sentinel);
+  TEST_CHECK(file_len == 999);
+  TEST_CHECK(strcmp(reason, "not a regular file") == 0);
+  TEST_CHECK(unlink(fifo_path) == 0);
+}
+
 // A file carrying an embedded `NUL` is rejected, leaving outputs untouched, and says so. This is
 // the boundary that establishes the `NUL`-free text invariant every downstream `strlen` relies on.
 // Accepting it would silently truncate wrapped output at the `NUL`.
@@ -288,6 +309,7 @@ static void test_write_file_rejects_missing_parent_and_dir_target(void) {
 TEST_LIST = {
     {"read file accepts empty", test_read_file_accepts_empty},
     {"read file rejects missing and non-regular", test_read_file_rejects_missing_and_non_regular},
+    {"read file rejects fifo", test_read_file_rejects_fifo},
     {"read file rejects embedded nul", test_read_file_rejects_embedded_nul},
     {"write then read round trips", test_write_then_read_round_trips},
     {"write file creates file with umask mode", test_write_file_creates_file_with_umask_mode},
