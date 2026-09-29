@@ -26,9 +26,12 @@ foreach(file IN LISTS fixture_files)
     COMMAND "${CWRAP_EXECUTABLE}" -w 40 "${CWRAP_FIXTURE_DIR}/${file}"
     OUTPUT_FILE "${actual_file}"
     RESULT_VARIABLE wrap_result
+    ERROR_VARIABLE wrap_stderr
   )
   if(NOT wrap_result EQUAL 0)
-    message(FATAL_ERROR "fixture rewrap failed with exit status ${wrap_result}: '${file}'")
+    message(
+      FATAL_ERROR "fixture rewrap failed with exit status ${wrap_result}: '${file}'\n${wrap_stderr}"
+    )
   endif()
 
   execute_process(

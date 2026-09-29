@@ -28,18 +28,26 @@ foreach(width IN ITEMS 20 40 60 100)
       COMMAND "${CWRAP_EXECUTABLE}" -w "${width}" "${CWRAP_SOURCE_DIR}/${input}"
       OUTPUT_FILE "${once_file}"
       RESULT_VARIABLE first_result
+      ERROR_VARIABLE first_stderr
     )
     if(NOT first_result EQUAL 0)
-      message(FATAL_ERROR "first rewrap failed for '${input}' at width ${width}")
+      message(
+        FATAL_ERROR "first rewrap failed with exit status ${first_result} for '${input}' "
+                    "at width ${width}:\n${first_stderr}"
+      )
     endif()
 
     execute_process(
       COMMAND "${CWRAP_EXECUTABLE}" -w "${width}" "${once_file}"
       OUTPUT_FILE "${twice_file}"
       RESULT_VARIABLE second_result
+      ERROR_VARIABLE second_stderr
     )
     if(NOT second_result EQUAL 0)
-      message(FATAL_ERROR "second rewrap failed for '${input}' at width ${width}")
+      message(
+        FATAL_ERROR "second rewrap failed with exit status ${second_result} for '${input}' "
+                    "at width ${width}:\n${second_stderr}"
+      )
     endif()
 
     execute_process(
