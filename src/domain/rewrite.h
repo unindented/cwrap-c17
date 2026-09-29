@@ -20,7 +20,7 @@ struct StringBuffer;
  * @param arena      Arena that owns temporary spans, blocks, and line texts. Must not be `NULL`.
  * @param err        Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
  * @param err_len    Size of `err` in bytes.
- * @return `0` on success, or `-1` on allocation or wrap failure.
+ * @return `0` on success, or `-1` when `width` is 0 or on allocation failure.
  */
 int rewrite_source(struct StringBuffer* buffer,
                    const char* source,

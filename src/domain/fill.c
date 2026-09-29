@@ -1,7 +1,6 @@
 #include "domain/fill.h"
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <string.h>
 
 #include "core/error.h"
@@ -9,7 +8,33 @@
 #include "domain/comment.h"
 #include "domain/doxygen.h"
 #include "shared/arena.h"
-#include "shared/string_buffer.h"
+
+/** One prose paragraph of a body, joined and split into atoms before any line is filled. */
+struct FillParagraph {
+  /** Index of the first body line in the paragraph. */
+  size_t start;
+
+  /** Index immediately after the last body line in the paragraph. */
+  size_t end;
+
+  /** Terminated paragraph text joined with single spaces, which `atoms` alias. */
+  const char* joined;
+
+  /** Bytes at the start of `joined` that stay on the first line: a tag and any name. */
+  size_t frozen_prefix_len;
+
+  /** Display columns of the frozen prefix, where a wrapped description continues. */
+  size_t tag_indent_columns;
+
+  /** Atoms after the frozen prefix, with each line-opener atom merged into the one before it. */
+  struct AtomList atoms;
+
+  /** Display columns before the paragraph's first line. */
+  size_t first_prefix_columns;
+
+  /** Columns reserved after the last atom for a closer that trails it, or 0. */
+  size_t closer_columns;
+};
 
 /**
  * @brief Reports whether `kind` may join a wrapable paragraph.
@@ -18,6 +43,25 @@
  * @return `true` for prose, which includes the continuation lines of a tag, or `false` otherwise.
  */
 static bool is_fillable(enum BodyLineKind kind);
+
+/**
+ * @brief Splits a paragraph of body lines into atoms before any of its lines is filled.
+ *
+ * Splitting every paragraph before filling any lets the refill count its lines exactly, so the
+ * refilled list is allocated once.
+ *
+ * @param lines         Line list. Must not be `NULL`.
+ * @param start         First paragraph line index, inclusive.
+ * @param end           Last paragraph line index, exclusive. Must be greater than `start`.
+ * @param arena         Arena that owns the joined text and atoms. Must not be `NULL`.
+ * @param paragraph_out Receives the split paragraph. Must not be `NULL`.
+ * @return `0` on success, or `-1` on allocation failure.
+ */
+static int split_paragraph(const struct BodyLineList* lines,
+                           size_t start,
+                           size_t end,
+                           struct Arena* arena,
+                           struct FillParagraph* paragraph_out) __attribute__((nonnull(1, 4, 5)));
 
 /**
  * @brief Joins `lines[start, end)` payloads with single spaces into arena-owned text.
@@ -47,74 +91,70 @@ static bool has_join_space(const struct BodyLineList* lines, size_t start, size_
     __attribute__((nonnull(1)));
 
 /**
- * @brief Appends one body line to a growable temporary list.
+ * @brief Returns the atom index that ends the greedily filled line starting at `atom_index`.
  *
- * @param lines    List that receives the line. Must not be `NULL`.
- * @param capacity Current capacity of `lines`; receives any grown capacity. Must not be `NULL`.
- * @param line     Line to append.
- * @param arena    Arena that owns any grown array. Must not be `NULL`.
- * @param err      Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
- * @param err_len  Size of `err` in bytes.
- * @return `0` on success, or `-1` on overflow or allocation failure.
+ * @param paragraph           Split paragraph. Must not be `NULL`.
+ * @param atom_index          First atom on the line. Must be less than `paragraph->atoms.count`
+ *                            unless the paragraph has no atoms.
+ * @param line_prefix_columns Display columns before the line.
+ * @param width               Wrapping column.
+ * @return Index after the last atom on the line. The line takes at least one atom when any is left.
  */
-static int append_line(struct BodyLineList* lines,
-                       size_t* capacity,
-                       struct BodyLine line,
-                       struct Arena* arena,
-                       char* err,
-                       size_t err_len) __attribute__((nonnull(1, 2, 4)));
+static size_t filled_line_end(const struct FillParagraph* paragraph,
+                              size_t atom_index,
+                              size_t line_prefix_columns,
+                              size_t width) __attribute__((nonnull(1)));
 
 /**
- * @brief Appends one copied line to a growable temporary body-line list.
+ * @brief Returns the number of lines `append_filled_paragraph` builds from `paragraph`.
  *
- * @param lines    List that receives the line. Must not be `NULL`.
- * @param capacity Current capacity of `lines`; receives any grown capacity. Must not be `NULL`.
- * @param kind     Kind assigned to the appended line.
- * @param line     Buffer whose bytes are copied. Must not be `NULL`.
- * @param arena    Arena that owns the copied text and any grown array. Must not be `NULL`.
- * @param err      Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
- * @param err_len  Size of `err` in bytes.
- * @return `0` on success, or `-1` on overflow or allocation failure.
+ * @param paragraph      Split paragraph. Must not be `NULL`.
+ * @param prefix_columns Continuation prefix columns.
+ * @param width          Wrapping column.
+ * @return Filled line count, at least 1.
  */
-static int append_filled_line(struct BodyLineList* lines,
-                              size_t* capacity,
-                              enum BodyLineKind kind,
-                              const struct StringBuffer* line,
-                              struct Arena* arena,
-                              char* err,
-                              size_t err_len) __attribute__((nonnull(1, 2, 4, 5)));
+static size_t filled_line_count(const struct FillParagraph* paragraph,
+                                size_t prefix_columns,
+                                size_t width) __attribute__((nonnull(1)));
 
 /**
- * @brief Appends greedily filled lines from one joined paragraph.
+ * @brief Appends greedily filled lines from one split paragraph.
  *
- * @param lines                Line list that receives the filled paragraph. Must not be `NULL`.
- * @param capacity             Current capacity of `lines`; receives any grown capacity. Must not be
- *                             `NULL`.
- * @param joined               Joined paragraph text. Must not be `NULL`.
- * @param joined_len           Number of bytes in `joined`.
- * @param frozen_prefix_len    Bytes at the start of `joined` that must stay on the first line.
- * @param first_prefix_columns First body-line prefix columns.
- * @param prefix_columns       Continuation prefix columns.
- * @param width                Wrapping column.
- * @param has_trailing_closer  Whether to reserve a trailing closer on the last line.
- * @param arena                Arena that owns the new line texts and a temporary array. Must not be
- *                             `NULL`.
- * @param err                  Diagnostic buffer. May be `NULL` only when `err_len` is 0.
- * @param err_len              Size of `err` in bytes.
+ * @param lines          Line list that receives the filled paragraph. Its array has room for every
+ *                       line the paragraph fills. Must not be `NULL`.
+ * @param paragraph      Split paragraph. Must not be `NULL`.
+ * @param prefix_columns Continuation prefix columns.
+ * @param width          Wrapping column.
+ * @param arena          Arena that owns the new line texts. Must not be `NULL`.
  * @return `0` on success, or `-1` on allocation failure.
  */
 static int append_filled_paragraph(struct BodyLineList* lines,
-                                   size_t* capacity,
-                                   const char* joined,
-                                   size_t joined_len,
-                                   size_t frozen_prefix_len,
-                                   size_t first_prefix_columns,
+                                   const struct FillParagraph* paragraph,
                                    size_t prefix_columns,
                                    size_t width,
-                                   bool has_trailing_closer,
-                                   struct Arena* arena,
-                                   char* err,
-                                   size_t err_len) __attribute__((nonnull(1, 2, 3, 10)));
+                                   struct Arena* arena) __attribute__((nonnull(1, 2, 5)));
+
+/**
+ * @brief Appends one filled line: a lead followed by `atoms` joined with single spaces.
+ *
+ * @param lines      Line list that receives the line. Its array has room for it. Must not be
+ *                   `NULL`.
+ * @param kind       Kind assigned to the line.
+ * @param lead       Bytes that open the line, such as a frozen tag prefix, or `NULL` for `lead_len`
+ *                   spaces.
+ * @param lead_len   Number of lead bytes.
+ * @param atoms      Atoms placed after the lead. May be `NULL` only when `atom_count` is 0.
+ * @param atom_count Number of atoms in `atoms`.
+ * @param arena      Arena that owns the line text. Must not be `NULL`.
+ * @return `0` on success, or `-1` on allocation failure.
+ */
+static int append_filled_line(struct BodyLineList* lines,
+                              enum BodyLineKind kind,
+                              const char* lead,
+                              size_t lead_len,
+                              const struct Atom* atoms,
+                              size_t atom_count,
+                              struct Arena* arena) __attribute__((nonnull(1, 7)));
 
 /**
  * @brief Merges each atom that would open a line of another kind into the atom before it.
@@ -155,15 +195,6 @@ static bool is_width_exceeded(size_t prefix_columns,
  */
 static size_t tag_prefix_len(const char* text, size_t text_len) __attribute__((nonnull(1)));
 
-/**
- * @brief Writes `count` spaces into `buffer`.
- *
- * @param buffer Destination buffer. Must not be `NULL`.
- * @param count  Number of spaces to write.
- * @return `0` on success, or `-1` on allocation failure.
- */
-static int append_spaces(struct StringBuffer* buffer, size_t count) __attribute__((nonnull(1)));
-
 int fill_body_lines(struct BodyLineList* lines,
                     size_t first_prefix_columns,
                     size_t prefix_columns,
@@ -172,44 +203,104 @@ int fill_body_lines(struct BodyLineList* lines,
                     struct Arena* arena,
                     char* err,
                     size_t err_len) {
-  struct BodyLineList rebuilt = {0};
-  size_t rebuilt_capacity = 0;
+  // Each paragraph holds at least one line, so the line count bounds the paragraph count.
+  struct FillParagraph* paragraphs = arena_calloc(arena, lines->count, sizeof(*paragraphs));
+  if (paragraphs == NULL) {
+    return error_report(err, err_len, "out of memory");
+  }
+  size_t paragraph_count = 0;
+  // A copied line stays one line.
+  size_t capacity = 0;
   size_t i = 0;
   while (i < lines->count) {
     if (!is_fillable(lines->items[i].kind) && lines->items[i].kind != BODY_LINE_TAG) {
-      if (append_line(&rebuilt, &rebuilt_capacity, lines->items[i], arena, err, err_len) != 0) {
-        return -1;
-      }
+      capacity++;
       i++;
       continue;
     }
     const size_t start = i;
-    const bool is_tag_start = lines->items[i].kind == BODY_LINE_TAG;
     i++;
     while (i < lines->count && is_fillable(lines->items[i].kind)) {
       i++;
     }
-    size_t joined_len = 0;
-    char* joined = join_payloads(lines, start, i, arena, &joined_len);
-    if (joined == NULL) {
+    struct FillParagraph* paragraph = &paragraphs[paragraph_count];
+    if (split_paragraph(lines, start, i, arena, paragraph) != 0) {
       return error_report(err, err_len, "out of memory");
     }
-    const size_t frozen_prefix_len = is_tag_start ? tag_prefix_len(joined, joined_len) : 0;
-    // The closer trails the last body line, so only a paragraph that ends the body makes room for
-    // it.
-    const bool is_closer_reserved = has_trailing_closer && i == lines->count;
-    if (append_filled_paragraph(&rebuilt, &rebuilt_capacity, joined, joined_len, frozen_prefix_len,
-                                first_prefix_columns, prefix_columns, width, is_closer_reserved,
-                                arena, err, err_len) != 0) {
-      return -1;
-    }
+    // Only the body's first line follows the opener. The closer trails the last body line, so only
+    // a paragraph that ends the body makes room for it.
+    paragraph->first_prefix_columns = start == 0 ? first_prefix_columns : prefix_columns;
+    paragraph->closer_columns = has_trailing_closer && i == lines->count ? 3 : 0;
+    capacity += filled_line_count(paragraph, prefix_columns, width);
+    paragraph_count++;
   }
-  *lines = rebuilt;
+
+  struct BodyLineList rebuilt = {
+      .items = arena_calloc(arena, capacity, sizeof(*rebuilt.items)),
+      .count = 0,
+  };
+  if (rebuilt.items == NULL) {
+    return error_report(err, err_len, "out of memory");
+  }
+  size_t paragraph_index = 0;
+  i = 0;
+  while (i < lines->count) {
+    if (paragraph_index == paragraph_count || paragraphs[paragraph_index].start != i) {
+      rebuilt.items[rebuilt.count] = lines->items[i];
+      rebuilt.count++;
+      i++;
+      continue;
+    }
+    const struct FillParagraph* paragraph = &paragraphs[paragraph_index];
+    if (append_filled_paragraph(&rebuilt, paragraph, prefix_columns, width, arena) != 0) {
+      return error_report(err, err_len, "out of memory");
+    }
+    i = paragraph->end;
+    paragraph_index++;
+  }
+  lines->items = rebuilt.count > 0 ? rebuilt.items : NULL;
+  lines->count = rebuilt.count;
   return 0;
 }
 
 static bool is_fillable(enum BodyLineKind kind) {
   return kind == BODY_LINE_PROSE;
+}
+
+static int split_paragraph(const struct BodyLineList* lines,
+                           size_t start,
+                           size_t end,
+                           struct Arena* arena,
+                           struct FillParagraph* paragraph_out) {
+  size_t joined_len = 0;
+  const char* joined = join_payloads(lines, start, end, arena, &joined_len);
+  if (joined == NULL) {
+    return -1;
+  }
+  const size_t frozen_prefix_len =
+      lines->items[start].kind == BODY_LINE_TAG ? tag_prefix_len(joined, joined_len) : 0;
+  struct AtomList atoms;
+  if (atom_split(joined, joined_len, arena, &atoms) != 0) {
+    return -1;
+  }
+  glue_line_opener_atoms(&atoms, joined, frozen_prefix_len);
+  // The frozen prefix opens the first line, so the atoms inside it (the tag and name) are dropped
+  // rather than written twice.
+  size_t prefix_atom_count = 0;
+  while (prefix_atom_count < atoms.count && (size_t)(atoms.items[prefix_atom_count].text - joined) +
+                                                    atoms.items[prefix_atom_count].text_len <=
+                                                frozen_prefix_len) {
+    prefix_atom_count++;
+  }
+  *paragraph_out = (struct FillParagraph){
+      .start = start,
+      .end = end,
+      .joined = joined,
+      .frozen_prefix_len = frozen_prefix_len,
+      .tag_indent_columns = atom_column_width(joined, frozen_prefix_len),
+      .atoms = {.items = atoms.items + prefix_atom_count, .count = atoms.count - prefix_atom_count},
+  };
+  return 0;
 }
 
 static char* join_payloads(const struct BodyLineList* lines,
@@ -244,151 +335,108 @@ static bool has_join_space(const struct BodyLineList* lines, size_t start, size_
   return index > start && lines->items[index - 1].text_len > 0 && lines->items[index].text_len > 0;
 }
 
-static int append_line(struct BodyLineList* lines,
-                       size_t* capacity,
-                       struct BodyLine line,
-                       struct Arena* arena,
-                       char* err,
-                       size_t err_len) {
-  if (lines->count == *capacity) {
-    if (*capacity > SIZE_MAX / 2) {
-      return error_report(err, err_len, "body line count exceeds max supported count (%zu) at %zu",
-                          SIZE_MAX / 2, *capacity);
+static size_t filled_line_end(const struct FillParagraph* paragraph,
+                              size_t atom_index,
+                              size_t line_prefix_columns,
+                              size_t width) {
+  const struct AtomList* atoms = &paragraph->atoms;
+  // The first atom on a line needs no gap: it follows the prefix, or sits at the description column
+  // after a continuation indent.
+  size_t used_columns = paragraph->tag_indent_columns;
+  size_t line_end = atom_index;
+  while (line_end < atoms->count) {
+    const bool is_line_start = line_end == atom_index;
+    const size_t gap = is_line_start ? 0 : 1;
+    const bool is_last = line_end + 1 == atoms->count;
+    const size_t extra_columns =
+        gap + atoms->items[line_end].columns + (is_last ? paragraph->closer_columns : 0);
+    if (!is_line_start &&
+        is_width_exceeded(line_prefix_columns, used_columns, extra_columns, width)) {
+      break;
     }
-    const size_t capacity_next = *capacity == 0 ? 4 : *capacity * 2;
-    struct BodyLine* grown = arena_calloc(arena, capacity_next, sizeof(*grown));
-    if (grown == NULL) {
-      return error_report(err, err_len, "out of memory");
-    }
-    if (lines->items != NULL) {
-      memcpy(grown, lines->items, lines->count * sizeof(*grown));
-    }
-    lines->items = grown;
-    *capacity = capacity_next;
+    used_columns += gap + atoms->items[line_end].columns;
+    line_end++;
   }
-  lines->items[lines->count] = line;
-  lines->count++;
+  return line_end;
+}
+
+static size_t filled_line_count(const struct FillParagraph* paragraph,
+                                size_t prefix_columns,
+                                size_t width) {
+  size_t line_count = 0;
+  size_t atom_index = 0;
+  do {
+    const size_t line_prefix_columns =
+        line_count == 0 ? paragraph->first_prefix_columns : prefix_columns;
+    atom_index = filled_line_end(paragraph, atom_index, line_prefix_columns, width);
+    line_count++;
+  } while (atom_index < paragraph->atoms.count);
+  return line_count;
+}
+
+static int append_filled_paragraph(struct BodyLineList* lines,
+                                   const struct FillParagraph* paragraph,
+                                   size_t prefix_columns,
+                                   size_t width,
+                                   struct Arena* arena) {
+  // The frozen prefix opens the first line. Overflow lines indent to the same column so a wrapped
+  // description stays under the first.
+  size_t atom_index = 0;
+  bool is_first_line = true;
+  do {
+    const size_t line_prefix_columns =
+        is_first_line ? paragraph->first_prefix_columns : prefix_columns;
+    const size_t line_end = filled_line_end(paragraph, atom_index, line_prefix_columns, width);
+    const bool is_tag_line = is_first_line && paragraph->frozen_prefix_len > 0;
+    const char* const lead = is_first_line ? paragraph->joined : NULL;
+    const size_t lead_len =
+        is_first_line ? paragraph->frozen_prefix_len : paragraph->tag_indent_columns;
+    if (append_filled_line(lines, is_tag_line ? BODY_LINE_TAG : BODY_LINE_PROSE, lead, lead_len,
+                           paragraph->atoms.items + atom_index, line_end - atom_index,
+                           arena) != 0) {
+      return -1;
+    }
+    atom_index = line_end;
+    is_first_line = false;
+  } while (atom_index < paragraph->atoms.count);
   return 0;
 }
 
 static int append_filled_line(struct BodyLineList* lines,
-                              size_t* capacity,
                               enum BodyLineKind kind,
-                              const struct StringBuffer* line,
-                              struct Arena* arena,
-                              char* err,
-                              size_t err_len) {
-  char* text = arena_strndup(arena, line->data == NULL ? "" : line->data, line->len);
+                              const char* lead,
+                              size_t lead_len,
+                              const struct Atom* atoms,
+                              size_t atom_count,
+                              struct Arena* arena) {
+  size_t text_len = lead_len;
+  for (size_t i = 0; i < atom_count; i++) {
+    text_len += (i > 0 ? 1 : 0) + atoms[i].text_len;
+  }
+  char* text = arena_alloc(arena, text_len + 1);
   if (text == NULL) {
-    return error_report(err, err_len, "out of memory");
-  }
-  const struct BodyLine filled_line = {
-      .kind = kind,
-      .text = text,
-      .text_len = line->len,
-  };
-  return append_line(lines, capacity, filled_line, arena, err, err_len);
-}
-
-static int append_filled_paragraph(struct BodyLineList* lines,
-                                   size_t* capacity,
-                                   const char* joined,
-                                   size_t joined_len,
-                                   size_t frozen_prefix_len,
-                                   size_t first_prefix_columns,
-                                   size_t prefix_columns,
-                                   size_t width,
-                                   bool has_trailing_closer,
-                                   struct Arena* arena,
-                                   char* err,
-                                   size_t err_len) {
-  struct AtomList atoms;
-  if (atom_split(joined, joined_len, arena, &atoms) != 0) {
-    return error_report(err, err_len, "out of memory");
-  }
-  glue_line_opener_atoms(&atoms, joined, frozen_prefix_len);
-
-  const size_t closer_columns = has_trailing_closer ? 3 : 0;
-
-  struct StringBuffer line;
-  string_buffer_init(&line);
-  int rc = -1;
-  enum BodyLineKind final_kind = BODY_LINE_PROSE;
-
-  size_t atom_index = 0;
-  // A frozen tag prefix is emitted on the first line before atoms that follow it. Atoms that sit
-  // inside the prefix (the tag and name) are skipped so they are not duplicated. Overflow lines
-  // indent to the same column so a wrapped description stays under the first.
-  size_t skip_until = frozen_prefix_len;
-  bool is_first_line = true;
-  const size_t tag_indent_columns =
-      frozen_prefix_len > 0 ? atom_column_width(joined, frozen_prefix_len) : 0;
-  size_t used_columns = tag_indent_columns;
-  size_t line_prefix_columns = lines->count == 0 ? first_prefix_columns : prefix_columns;
-
-  if (frozen_prefix_len > 0) {
-    if (string_buffer_append_len(&line, joined, frozen_prefix_len) != 0) {
-      (void)error_report(err, err_len, "out of memory");
-      goto cleanup;
-    }
+    return -1;
   }
 
-  while (atom_index < atoms.count) {
-    const struct Atom* atom = &atoms.items[atom_index];
-    const size_t atom_offset = (size_t)(atom->text - joined);
-    if (atom_offset + atom->text_len <= skip_until) {
-      atom_index++;
-      continue;
-    }
-
-    const bool is_last = atom_index + 1 == atoms.count;
-    // After a frozen prefix or a continuation indent, the next atom is already at the description
-    // column and needs no extra space.
-    const bool is_at_tag_column = tag_indent_columns > 0 && used_columns == tag_indent_columns;
-    const size_t gap = used_columns > 0 && !is_at_tag_column ? 1 : 0;
-
-    const size_t extra_columns = gap + atom->columns + (is_last ? closer_columns : 0);
-    if (used_columns > tag_indent_columns &&
-        is_width_exceeded(line_prefix_columns, used_columns, extra_columns, width)) {
-      const enum BodyLineKind kind =
-          is_first_line && frozen_prefix_len > 0 ? BODY_LINE_TAG : BODY_LINE_PROSE;
-      if (append_filled_line(lines, capacity, kind, &line, arena, err, err_len) != 0) {
-        goto cleanup;
-      }
-      string_buffer_free(&line);
-      string_buffer_init(&line);
-      is_first_line = false;
-      skip_until = 0;
-      if (tag_indent_columns > 0 && append_spaces(&line, tag_indent_columns) != 0) {
-        (void)error_report(err, err_len, "out of memory");
-        goto cleanup;
-      }
-      used_columns = tag_indent_columns;
-      line_prefix_columns = prefix_columns;
-      continue;
-    }
-
-    if (gap > 0 && string_buffer_append_char(&line, ' ') != 0) {
-      (void)error_report(err, err_len, "out of memory");
-      goto cleanup;
-    }
-    if (string_buffer_append_len(&line, atom->text, atom->text_len) != 0) {
-      (void)error_report(err, err_len, "out of memory");
-      goto cleanup;
-    }
-    used_columns += gap + atom->columns;
-    atom_index++;
+  if (lead == NULL) {
+    memset(text, ' ', lead_len);
+  } else {
+    memcpy(text, lead, lead_len);
   }
-
-  final_kind = is_first_line && frozen_prefix_len > 0 ? BODY_LINE_TAG : BODY_LINE_PROSE;
-  if (append_filled_line(lines, capacity, final_kind, &line, arena, err, err_len) != 0) {
-    goto cleanup;
+  size_t offset = lead_len;
+  for (size_t i = 0; i < atom_count; i++) {
+    if (i > 0) {
+      text[offset] = ' ';
+      offset++;
+    }
+    memcpy(text + offset, atoms[i].text, atoms[i].text_len);
+    offset += atoms[i].text_len;
   }
-  rc = 0;
+  text[offset] = '\0';
 
-cleanup:
-  string_buffer_free(&line);
-  return rc;
+  lines->items[lines->count] = (struct BodyLine){.kind = kind, .text = text, .text_len = text_len};
+  lines->count++;
+  return 0;
 }
 
 static void glue_line_opener_atoms(struct AtomList* atoms,
@@ -432,13 +480,4 @@ static bool is_width_exceeded(size_t prefix_columns,
 static size_t tag_prefix_len(const char* text, size_t text_len) {
   struct DoxygenTag tag;
   return doxygen_has_tag(text, text_len, &tag) ? tag.description_offset : 0;
-}
-
-static int append_spaces(struct StringBuffer* buffer, size_t count) {
-  for (size_t i = 0; i < count; i++) {
-    if (string_buffer_append_char(buffer, ' ') != 0) {
-      return -1;
-    }
-  }
-  return 0;
 }

@@ -264,46 +264,30 @@ int comment_group(const char* source,
                   struct CommentBlockList* blocks_out,
                   char* err,
                   size_t err_len) {
-  size_t count = 0;
+  // Each block holds at least one span, so the span count bounds the block count.
+  struct CommentBlock* items = arena_calloc(arena, spans->count, sizeof(*items));
+  if (items == NULL) {
+    return error_report(err, err_len, "out of memory");
+  }
+
+  size_t n = 0;
   for (size_t i = 0; i < spans->count; i++) {
     const struct CommentSpan* span = &spans->items[i];
     if (!is_span_rewritable(source, span)) {
       continue;
     }
-    count++;
+    struct CommentBlock* block = &items[n];
+    fill_block_from_span(block, source, source_len, span);
     if (span->kind == COMMENT_KIND_LINE) {
-      const struct CommentSpan* first = span;
-      while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end, first)) {
+      while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end, span)) {
         i++;
+        block->end = spans->items[i].end;
       }
     }
-  }
-
-  struct CommentBlock* items = NULL;
-  size_t n = 0;
-  if (count > 0) {
-    items = arena_calloc(arena, count, sizeof(*items));
-    if (items == NULL) {
-      return error_report(err, err_len, "out of memory");
-    }
-    for (size_t i = 0; i < spans->count; i++) {
-      const struct CommentSpan* span = &spans->items[i];
-      if (!is_span_rewritable(source, span)) {
-        continue;
-      }
-      struct CommentBlock* block = &items[n];
-      fill_block_from_span(block, source, source_len, span);
-      if (span->kind == COMMENT_KIND_LINE) {
-        while (is_line_run_continuation(source, spans, i + 1, spans->items[i].end, span)) {
-          i++;
-          block->end = spans->items[i].end;
-        }
-      }
-      // A block without prose, such as a banner, keeps its exact bytes. The next block reuses the
-      // slot.
-      if (has_alphanumeric_payload(source, block)) {
-        n++;
-      }
+    // A block without prose, such as a banner, keeps its exact bytes. The next block reuses the
+    // slot.
+    if (has_alphanumeric_payload(source, block)) {
+      n++;
     }
   }
 
