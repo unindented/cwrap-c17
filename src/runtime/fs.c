@@ -203,6 +203,17 @@ int fs_write_file(const char* file_path,
     (void)fs_reason_errno(reason, reason_len, errno);
     rc = -1;
   }
+  // Flush and `fsync` before the `rename`, not after. Otherwise the new directory entry can reach
+  // the disk while the bytes behind it are still in the page cache, and a power loss leaves the
+  // user's source file empty or truncated in place of the previous complete one.
+  if (rc == 0 && fflush(fp) != 0) {
+    (void)fs_reason_errno(reason, reason_len, errno);
+    rc = -1;
+  }
+  if (rc == 0 && fsync(fileno(fp)) != 0) {
+    (void)fs_reason_errno(reason, reason_len, errno);
+    rc = -1;
+  }
   if (fclose(fp) != 0) {
     if (rc == 0) {
       (void)fs_reason_errno(reason, reason_len, errno);

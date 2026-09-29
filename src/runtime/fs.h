@@ -49,6 +49,14 @@ int fs_read_file(const char* file_path,
  * write leaves an existing file untouched. Follows a symbolic link rather than replacing it. Does
  * not create missing parent directories.
  *
+ * A reader sees either the previous complete file or the new complete file. The temporary is
+ * `fsync`ed before the `rename`, so its bytes reach the device before the name that publishes them
+ * does. Reversed, a power loss could leave the destination empty or truncated. Two limits remain.
+ * This uses `fsync` and not `F_FULLFSYNC`, so a drive that acknowledges a flush while the data sits
+ * in its own volatile cache can still lose it. The containing directory is not synced either, so a
+ * crash can undo the `rename` and leave the previous complete file in place, which is the safe
+ * direction to fail in: rerunning cwrap redoes the rewrite.
+ *
  * An existing destination keeps its permission bits. A newly created file gets mode `0666` reduced
  * by the process umask, the mode `fopen(path, "wb")` would give it. Because `rename` installs a new
  * inode rather than writing through the old one, replacement breaks any hard link to the
@@ -61,7 +69,8 @@ int fs_read_file(const char* file_path,
  * @param reason     Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  *                   Untouched on success.
  * @param reason_len Size of `reason` in bytes.
- * @return `0` on success, or `-1` on a metadata, temporary-file, write, close, or rename failure.
+ * @return `0` on success, or `-1` on a metadata, temporary-file, write, sync, close, or rename
+ *         failure.
  */
 int fs_write_file(const char* file_path,
                   const char* data,
