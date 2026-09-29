@@ -198,7 +198,6 @@ Docker accepts the same command with `docker` in place of `podman`. The image co
 
 ```sh
 podman run --rm cwrap-linux-ci ci-debug
-podman run --rm cwrap-linux-ci ci-tsan
 podman run --rm cwrap-linux-ci ci-release
 podman run --rm cwrap-linux-ci ci-multi
 ```
