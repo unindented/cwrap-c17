@@ -1,5 +1,4 @@
 #include <acutest.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -36,32 +35,17 @@ static void test_split_keeps_unbreakable_atoms(void) {
   const char* text = "see `const char*` and E2 80 94 (24 of 32 slots) plus 264 MB here";
   struct AtomList atoms;
   TEST_CHECK(atom_split(text, strlen(text), &arena, &atoms) == 0);
-  TEST_CHECK(atoms.count >= 5);
-  TEST_CHECK(atoms.items[1].text_len == strlen("`const char*`"));
-  TEST_CHECK(memcmp(atoms.items[1].text, "`const char*`", atoms.items[1].text_len) == 0);
-
-  bool has_hex = false;
-  bool has_quantity = false;
-  bool has_whole_parenthetical = false;
-  bool has_open_parenthetical = false;
-  for (size_t i = 0; i < atoms.count; i++) {
-    if (atoms.items[i].text_len == 8 && memcmp(atoms.items[i].text, "E2 80 94", 8) == 0) {
-      has_hex = true;
-    }
-    if (atoms.items[i].text_len == 16 && memcmp(atoms.items[i].text, "(24 of 32 slots)", 16) == 0) {
-      has_whole_parenthetical = true;
-    }
-    if (atoms.items[i].text_len == 3 && memcmp(atoms.items[i].text, "(24", 3) == 0) {
-      has_open_parenthetical = true;
-    }
-    if (atoms.items[i].text_len == 6 && memcmp(atoms.items[i].text, "264 MB", 6) == 0) {
-      has_quantity = true;
-    }
+  static const char* const expected[] = {
+      "see", "`const char*`", "and",  "E2 80 94", "(24",  "of",
+      "32",  "slots)",        "plus", "264 MB",   "here",
+  };
+  const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
+  TEST_CHECK(atoms.count == expected_count);
+  for (size_t i = 0; i < atoms.count && i < expected_count; i++) {
+    TEST_CHECK(atoms.items[i].text_len == strlen(expected[i]) &&
+               memcmp(atoms.items[i].text, expected[i], atoms.items[i].text_len) == 0);
+    TEST_MSG("atom %zu: expected '%s'", i, expected[i]);
   }
-  TEST_CHECK(has_hex);
-  TEST_CHECK(has_quantity);
-  TEST_CHECK(has_open_parenthetical);
-  TEST_CHECK(!has_whole_parenthetical);
   arena_free(&arena);
 }
 
