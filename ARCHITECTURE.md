@@ -38,7 +38,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 `rewrite_source` ([src/domain/rewrite.h](src/domain/rewrite.h)) owns the domain pipeline for one source buffer:
 
-1. **Lex** (`lex_comment_spans`): A character state machine records every comment span and ignores strings and character literals. A shared transition keeps LF and CRLF line splices inside the state they continue.
+1. **Lex** (`lex_comment_spans`): A character state machine records every comment span and ignores strings and character literals. A shared transition keeps LF and CRLF line splices inside the state they continue. A comment that follows code or the closer of another comment on its line is recorded as trailing.
 2. **Group** (`comment_group`): Consecutive same-indent `//` lines become one block. A run is grouped without regard to a backslash line splice, so two `//` lines joined by one collapse into a single line whose `\` becomes literal text. The result is still wholly a comment, and a trailing `\` that ends a payload stays the last atom, so refilling never moves a splice off the end of a line and turns the spliced line into code. Trailing comments are omitted. A slash-star block is starred when a continuation `*` sits at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker.
 3. **Extract** (`comment_extract_body`): Decoration is stripped (`*/` before `*`) and each payload line is classified. A closer-only last line is dropped. Hanging indent is stripped; extra indent that is not a tag continuation is an indented sample.
 4. **Align** (`doxygen_align_parameters`): `@param` descriptions share a column.

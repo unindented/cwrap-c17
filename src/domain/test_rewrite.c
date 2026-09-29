@@ -74,6 +74,19 @@ static void test_leaves_spliced_trailing_comment_unchanged(void) {
   free(out);
 }
 
+// A comment after another comment on the same line is trailing and stays unchanged.
+static void test_leaves_comment_after_comment_unchanged(void) {
+  const char* source =
+      "/* a */ /* one two three four five */\n/* b */ // one two three four five\n";
+  char* out = rewrite(source, 20);
+  TEST_ASSERT(out != NULL);
+  if (out == NULL) {
+    return;
+  }
+  TEST_CHECK(strcmp(out, source) == 0);
+  free(out);
+}
+
 // Short line-comment lines are joined.
 static void test_joins_short_line_comments(void) {
   const char* source = "// one\n// two\n";
@@ -395,6 +408,7 @@ TEST_LIST = {
     {"leaves crlf spliced string unchanged", test_leaves_crlf_spliced_string_unchanged},
     {"leaves trailing comment unchanged", test_leaves_trailing_comment_unchanged},
     {"leaves spliced trailing comment unchanged", test_leaves_spliced_trailing_comment_unchanged},
+    {"leaves comment after comment unchanged", test_leaves_comment_after_comment_unchanged},
     {"joins short line comments", test_joins_short_line_comments},
     {"narrow width splits atoms", test_narrow_width_splits_atoms},
     {"wraps wide emoji by display columns", test_wraps_wide_emoji_by_display_columns},

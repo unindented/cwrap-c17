@@ -60,6 +60,19 @@ static void test_trailing_comment_is_flagged(void) {
   arena_free(&arena);
 }
 
+// A comment after another comment's closer on the same line is marked trailing.
+static void test_comment_after_comment_is_trailing(void) {
+  struct Arena arena;
+  arena_init(&arena);
+  struct CommentSpanList spans = lex(&arena, "/* a */ /* b */\n/* c\n */ // d\n");
+  TEST_CHECK(spans.count == 4);
+  TEST_CHECK(!spans.items[0].is_trailing);
+  TEST_CHECK(spans.items[1].is_trailing);
+  TEST_CHECK(!spans.items[2].is_trailing);
+  TEST_CHECK(spans.items[3].is_trailing);
+  arena_free(&arena);
+}
+
 // A comment at the start of a line is not trailing.
 static void test_leading_comment_is_not_trailing(void) {
   struct Arena arena;
@@ -134,6 +147,7 @@ TEST_LIST = {
     {"string url yields no comments", test_string_url_yields_no_comments},
     {"adjacent block comments stay separate", test_adjacent_block_comments_stay_separate},
     {"trailing comment is flagged", test_trailing_comment_is_flagged},
+    {"comment after comment is trailing", test_comment_after_comment_is_trailing},
     {"leading comment is not trailing", test_leading_comment_is_not_trailing},
     {"include path does not hide comment", test_include_path_does_not_hide_comment},
     {"include paths yield no false comments", test_include_paths_yield_no_false_comments},

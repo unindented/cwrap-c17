@@ -294,6 +294,8 @@ static size_t scan_spans(struct CommentSpan* items, const char* source, size_t s
                          .is_trailing = is_comment_trailing,
                      });
           count++;
+          // A later comment on this line must not treat the one just closed as its indent.
+          has_line_code = true;
           state = LEX_STATE_CODE;
         } else if (c == '*') {
           state = LEX_STATE_BLOCK_STAR;

@@ -30,8 +30,8 @@ struct CommentSpan {
   /** Display column of the first `/` of the opener, measured from the start of its line. */
   size_t opener_column;
 
-  /** Whether non-whitespace code appears on the opener's line before the comment. Trailing comments
-     are recorded so a rewriter can copy them unchanged. */
+  /** Whether non-whitespace code or the closer of another comment appears on the opener's line
+     before the comment. Trailing comments are recorded so a rewriter can copy them unchanged. */
   bool is_trailing;
 };
 
