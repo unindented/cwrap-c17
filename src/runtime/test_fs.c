@@ -130,9 +130,8 @@ static void test_read_file_rejects_fifo(void) {
 // the boundary that establishes the `NUL`-free text invariant every downstream `strlen` relies on.
 // Accepting it would silently truncate wrapped output at the `NUL`.
 static void test_read_file_rejects_embedded_nul(void) {
-  const char payload[] = {'a', '\0', 'b'};
   char file_path[] = "/tmp/cwrap-fs-nul.XXXXXX";
-  if (init_fixture_file(file_path, payload, sizeof(payload)) == NULL) {
+  if (init_fixture_file(file_path, "before\0after", sizeof("before\0after") - 1) == NULL) {
     return;
   }
   char sentinel[] = "unchanged";
