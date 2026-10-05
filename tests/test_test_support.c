@@ -4,6 +4,7 @@
 
 #include <acutest.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "runtime/fs.h"
 #include "test_support.h"
 
 /**
@@ -23,6 +25,53 @@
 static bool is_same_file(int fd, const struct stat* before) {
   struct stat after;
   return fstat(fd, &after) == 0 && after.st_dev == before->st_dev && after.st_ino == before->st_ino;
+}
+
+// A fixture file lands below the root in nested directories with its text intact, and removing the
+// tree deletes the root and everything below it.
+static void test_fixture_tree_write_and_remove(void) {
+  char root_dir_template[] = "/tmp/cwrap-test-support.XXXXXX";
+  const char* root_dir = init_fixture_dir(root_dir_template);
+  if (root_dir == NULL) {
+    return;
+  }
+  char fixture_path[PATH_MAX];
+  const int fixture_path_len =
+      snprintf(fixture_path, sizeof(fixture_path), "%s/nested/deeper/file.txt", root_dir);
+  const bool is_path_complete =
+      fixture_path_len > 0 && (size_t)fixture_path_len < sizeof(fixture_path);
+  // Each parent directory path is a prefix of the file path, so it fits when the file path does.
+  char nested_dir[PATH_MAX];
+  (void)snprintf(nested_dir, sizeof(nested_dir), "%s/nested", root_dir);
+  char deeper_dir[PATH_MAX];
+  (void)snprintf(deeper_dir, sizeof(deeper_dir), "%s/nested/deeper", root_dir);
+  const int write_rc =
+      is_path_complete && mkdir(nested_dir, 0700) == 0 && mkdir(deeper_dir, 0700) == 0
+          ? fs_write_file(fixture_path, "fixture text", strlen("fixture text"), NULL, 0)
+          : -1;
+  FILE* fixture = write_rc == 0 ? fopen(fixture_path, "rb") : NULL;
+  const bool is_opened = fixture != NULL;
+  char text[64] = "";
+  int read_rc = -1;
+  int close_rc = -1;
+  if (fixture != NULL) {
+    read_rc = read_capture(fixture, text, sizeof(text));
+    close_rc = fclose(fixture);
+  }
+  // The tree is removed before any assertion, so a failed one cannot leave it behind.
+  remove_fixture_tree(root_dir);
+  errno = 0;
+  const int access_rc = access(root_dir, F_OK);
+  const int access_errno = errno;
+
+  TEST_CHECK(root_dir == root_dir_template);
+  TEST_CHECK(write_rc == 0);
+  TEST_CHECK(is_path_complete);
+  TEST_CHECK(is_opened);
+  TEST_CHECK(read_rc == 0);
+  TEST_CHECK(close_rc == 0);
+  TEST_CHECK(strcmp(text, "fixture text") == 0);
+  TEST_CHECK(access_rc == -1 && access_errno == ENOENT);
 }
 
 // A fixture file holds exactly the `contents_len` bytes passed, including an embedded `NUL`, so the
@@ -119,6 +168,7 @@ static void test_unwritable_capture_fails_writes_and_discards_them(void) {
 }
 
 TEST_LIST = {
+    {"fixture tree write and remove", test_fixture_tree_write_and_remove},
     {"init fixture file writes contents", test_init_fixture_file_writes_contents},
     {"capture reads stream text and restores", test_capture_reads_stream_text_and_restores},
     {"capture flushes buffered text", test_capture_flushes_buffered_text},

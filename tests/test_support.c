@@ -16,11 +16,47 @@
 
 #include <acutest.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "runtime/fs.h"
+
+const char* init_fixture_dir(char root_dir[static 1]) {
+  char* created_root_dir = mkdtemp(root_dir);
+  TEST_CHECK(created_root_dir != NULL);
+  if (created_root_dir == NULL) {
+    return NULL;
+  }
+  return created_root_dir;
+}
+
+/**
+ * @brief Removes one entry a fixture-tree walk visits.
+ *
+ * @param path      Path of the visited entry.
+ * @param st        Stat buffer `nftw` filled. Unused.
+ * @param type_flag Entry type `nftw` determined.
+ * @param ftw       Traversal state `nftw` maintains. Unused.
+ * @return `0` to continue the walk.
+ */
+static int remove_fixture_tree_entry(const char* path,
+                                     const struct stat* st,
+                                     int type_flag,
+                                     struct FTW* ftw) {
+  (void)st;
+  (void)ftw;
+  TEST_CHECK((type_flag == FTW_DP ? rmdir(path) : unlink(path)) == 0);
+  return 0;
+}
+
+void remove_fixture_tree(const char* root_dir) {
+  enum { FIXTURE_TREE_FD_MAX = 8 };
+  TEST_CHECK(nftw(root_dir, remove_fixture_tree_entry, FIXTURE_TREE_FD_MAX, FTW_DEPTH | FTW_PHYS) ==
+             0);
+}
 
 const char* init_fixture_file(char file_path[static 1], const char* contents, size_t contents_len) {
   const int fd = mkstemp(file_path);

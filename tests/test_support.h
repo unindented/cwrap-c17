@@ -12,6 +12,29 @@
 enum { TEST_PLUMBING_FAILED = 255 };
 
 /**
+ * @brief Creates a temporary fixture root.
+ *
+ * The returned pointer aliases the caller's writable template and must not be freed.
+ *
+ * @param root_dir Writable `mkdtemp` template. Receives the created directory path. Must not be
+ *                 `NULL`.
+ * @return `root_dir` on success, or `NULL` after recording a test-plumbing failure.
+ */
+const char* init_fixture_dir(char root_dir[static 1]);
+
+/**
+ * @brief Removes a fixture root and everything below it.
+ *
+ * Walking the tree keeps cleanup complete without a per-test inventory of the paths a fixture
+ * writes or the code under test creates, and it needs no caller to classify a path as a file or a
+ * directory. Each removal is checked, so a fixture a test leaves behind fails that test rather than
+ * accumulating under `/tmp`.
+ *
+ * @param root_dir Fixture root directory to remove. Must not be `NULL`.
+ */
+void remove_fixture_tree(const char* root_dir);
+
+/**
  * @brief Creates a temporary fixture file holding `contents`.
  *
  * The returned pointer aliases the caller's writable template and must not be freed. The caller

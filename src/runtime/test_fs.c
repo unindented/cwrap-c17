@@ -2,9 +2,11 @@
 #define _DEFAULT_SOURCE
 
 #include <acutest.h>
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +37,31 @@ static const char* expected_errno_reason(char buf[static FS_REASON_SIZE], int er
     buf[0] = '\0';
   }
   return buf;
+}
+
+/**
+ * @brief Reports whether a directory holds exactly the given number of entries.
+ *
+ * The `.` and `..` entries are not counted.
+ *
+ * @param dir_path    Directory to list. Must not be `NULL`.
+ * @param entry_count Number of entries the directory must hold.
+ * @return `true` when the directory holds exactly `entry_count` entries, or `false` when it holds
+ *         another number or cannot be listed.
+ */
+static bool has_entry_count(const char* dir_path, size_t entry_count) {
+  DIR* dir = opendir(dir_path);
+  if (dir == NULL) {
+    return false;
+  }
+  size_t found_count = 0;
+  const struct dirent* entry = NULL;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+      found_count++;
+    }
+  }
+  return closedir(dir) == 0 && found_count == entry_count;
 }
 
 // The `NULL, 0` reason arguments throughout this file are the documented option, not forgotten
@@ -223,11 +250,10 @@ static void test_write_file_replaces_contents(void) {
 
 // `fs_write_file` creates a new file with `0666` reduced by the process umask rather than
 // `mkstemp`'s `0600`, and replacing an existing file keeps that file's mode. No temporary survives
-// either write, which the final `rmdir` of the fixture directory checks.
+// either write, which the count of entries left in the fixture directory checks.
 static void test_write_file_applies_umask_and_keeps_existing_mode(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-mode.XXXXXX";
-  const char* root_dir = mkdtemp(root_dir_template);
-  TEST_ASSERT(root_dir != NULL);
+  const char* root_dir = init_fixture_dir(root_dir_template);
   if (root_dir == NULL) {
     return;
   }
@@ -256,11 +282,10 @@ static void test_write_file_applies_umask_and_keeps_existing_mode(void) {
 
   TEST_CHECK(stat(created, &st) == 0 && (st.st_mode & 07777) == (mode_t)(0666 & ~027));
   TEST_CHECK(stat(existing, &st) == 0 && (st.st_mode & 07777) == 0640);
+  TEST_CHECK(has_entry_count(root_dir, 2));
 
 cleanup:
-  (void)unlink(created);
-  (void)unlink(existing);
-  TEST_CHECK(rmdir(root_dir) == 0);
+  remove_fixture_tree(root_dir);
 }
 
 // Atomic replacement follows a symbolic link and leaves the link itself in place.
@@ -347,8 +372,7 @@ cleanup:
 // before any temporary file is created.
 static void test_write_file_rejects_missing_or_file_parent_and_dir_target(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-write-fail.XXXXXX";
-  const char* root_dir = mkdtemp(root_dir_template);
-  TEST_ASSERT(root_dir != NULL);
+  const char* root_dir = init_fixture_dir(root_dir_template);
   if (root_dir == NULL) {
     return;
   }
@@ -393,9 +417,7 @@ static void test_write_file_rejects_missing_or_file_parent_and_dir_target(void) 
   TEST_CHECK(strcmp(reason, expected_errno_reason(expected, EISDIR)) == 0);
 
 cleanup:
-  (void)unlink(blocking_file);
-  (void)rmdir(dir_target);
-  (void)rmdir(root_dir);
+  remove_fixture_tree(root_dir);
 }
 
 // A dangling symbolic link fails with the `ENOENT` that `realpath` reports instead of creating the
@@ -403,8 +425,7 @@ cleanup:
 // target would otherwise write a file at a path the caller never passed.
 static void test_write_file_rejects_dangling_symbolic_link(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-dangling.XXXXXX";
-  const char* root_dir = mkdtemp(root_dir_template);
-  TEST_ASSERT(root_dir != NULL);
+  const char* root_dir = init_fixture_dir(root_dir_template);
   if (root_dir == NULL) {
     return;
   }
@@ -429,12 +450,11 @@ static void test_write_file_rejects_dangling_symbolic_link(void) {
   TEST_CHECK(fs_write_file(link_path, "x", 1, reason, sizeof(reason)) == -1);
   TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
   TEST_CHECK(lstat(target_path, &target_st) != 0);
+  // The link is the only entry, which proves no temporary was left behind.
+  TEST_CHECK(has_entry_count(root_dir, 1));
 
 cleanup:
-  (void)unlink(target_path);
-  (void)unlink(link_path);
-  // `rmdir` succeeds only on an empty directory, so it also proves no temporary was left behind.
-  TEST_CHECK(rmdir(root_dir) == 0);
+  remove_fixture_tree(root_dir);
 }
 
 TEST_LIST = {
