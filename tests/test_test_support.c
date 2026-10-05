@@ -25,6 +25,37 @@ static bool is_same_file(int fd, const struct stat* before) {
   return fstat(fd, &after) == 0 && after.st_dev == before->st_dev && after.st_ino == before->st_ino;
 }
 
+// A fixture file holds exactly the `contents_len` bytes passed, including an embedded `NUL`, so the
+// helper writes by length rather than stopping at the first terminator. The file is read back with
+// `fread` because `fs_read_file` rejects an embedded `NUL`. The open descriptor keeps the contents
+// readable after the file is removed.
+static void test_init_fixture_file_writes_contents(void) {
+  static const char contents[] = "a\0b\n";
+  const size_t contents_len = sizeof(contents) - 1;
+  char file_path[] = "/tmp/cwrap-test-support.XXXXXX";
+  const char* fixture_path = init_fixture_file(file_path, contents, contents_len);
+  if (fixture_path == NULL) {
+    return;
+  }
+  TEST_CHECK(fixture_path == file_path);
+
+  FILE* file = fopen(file_path, "rb");
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
+  TEST_ASSERT(file != NULL);
+  if (file == NULL) {
+    return;
+  }
+  char file_data[16];
+  const size_t file_len = fread(file_data, 1, sizeof(file_data), file);
+  const bool has_read_failed = ferror(file) != 0;
+  const int close_rc = fclose(file);
+  TEST_CHECK(!has_read_failed);
+  TEST_CHECK(close_rc == 0);
+
+  TEST_CHECK(file_len == contents_len && memcmp(file_data, contents, contents_len) == 0);
+}
+
 // A capture receives what the stream writes while redirected, and the stream writes to its original
 // descriptor again once the capture ends.
 static void test_capture_reads_stream_text_and_restores(void) {
@@ -88,6 +119,7 @@ static void test_unwritable_capture_fails_writes_and_discards_them(void) {
 }
 
 TEST_LIST = {
+    {"init fixture file writes contents", test_init_fixture_file_writes_contents},
     {"capture reads stream text and restores", test_capture_reads_stream_text_and_restores},
     {"capture flushes buffered text", test_capture_flushes_buffered_text},
     {"capture reads empty text", test_capture_reads_empty_text},
