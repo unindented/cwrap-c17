@@ -11,7 +11,7 @@
 - [tests/](tests/): Golden and idempotence test suites and the shared unit-test support library ([tests/test_support.h](tests/test_support.h)). Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files and every first-party source file at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): Project entry point and supported build configurations.
 - [cmake/](cmake/): Build profiles, quality tools, packaging, the golden and idempotence test drivers, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [vendor/](vendor/): Bundled dependencies (`copt`, `sharedstuff`, `acutest`).
+- [vendor/](vendor/): Bundled dependencies (`sharedstuff`, `copt`, `acutest`).
 
 First-party dependencies point inward:
 
