@@ -251,44 +251,6 @@ static void test_valid_version_flag_wins_over_rejected_spelling(void) {
   TEST_CHECK(options.error_message[0] == '\0');
 }
 
-// `--in-place` and `--check` cannot be combined.
-static void test_check_and_in_place_conflict(void) {
-  char* argv[] = {"cwrap", "--check", "-i", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
-}
-
-// Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
-static void test_stdin_cannot_be_combined(void) {
-  char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
-  struct CliOptions options = parse(mixed_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
-             0);
-
-  char* repeated_argv[] = {"cwrap", "-", "-", NULL};
-  options = parse(repeated_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
-}
-
-// In-place output needs a path and is rejected for implicit and explicit standard input.
-static void test_in_place_rejects_stdin(void) {
-  char* implicit_argv[] = {"cwrap", "--in-place", NULL};
-  struct CliOptions options = parse(implicit_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
-
-  char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
-  options = parse(explicit_argv);
-  TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
-}
-
 // A non-numeric wrapping column is rejected with a diagnostic naming the offending value.
 static void test_invalid_width_rejected(void) {
   char* argv[] = {"cwrap", "--width", "abc", "a.c", NULL};
@@ -452,6 +414,44 @@ static void test_unknown_long_option(void) {
   TEST_CHECK(strcmp(options.error_message, "unknown option '--frobnicate'") == 0);
 }
 
+// Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
+static void test_stdin_cannot_be_combined(void) {
+  char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
+  struct CliOptions options = parse(mixed_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
+             0);
+
+  char* repeated_argv[] = {"cwrap", "-", "-", NULL};
+  options = parse(repeated_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
+}
+
+// `--in-place` and `--check` cannot be combined.
+static void test_check_and_in_place_conflict(void) {
+  char* argv[] = {"cwrap", "--check", "-i", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
+}
+
+// In-place output needs a path and is rejected for implicit and explicit standard input.
+static void test_in_place_rejects_stdin(void) {
+  char* implicit_argv[] = {"cwrap", "--in-place", NULL};
+  struct CliOptions options = parse(implicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+
+  char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
+  options = parse(explicit_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(
+      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+}
+
 // The generated version accessor returns a non-empty version.
 static void test_version_accessor_present(void) {
   TEST_CHECK(cwrap_version_string()[0] != '\0');
@@ -594,9 +594,6 @@ TEST_LIST = {
     {"informational flag clears diagnostic", test_informational_flag_clears_diagnostic},
     {"valid version flag wins over rejected spelling",
      test_valid_version_flag_wins_over_rejected_spelling},
-    {"check and in place conflict", test_check_and_in_place_conflict},
-    {"stdin cannot be combined", test_stdin_cannot_be_combined},
-    {"in place rejects stdin", test_in_place_rejects_stdin},
     {"invalid width rejected", test_invalid_width_rejected},
     {"zero width rejected", test_zero_width_rejected},
     {"negative width rejected", test_negative_width_rejected},
@@ -611,6 +608,9 @@ TEST_LIST = {
     {"unknown short option", test_unknown_short_option},
     {"unknown short option value ends cluster", test_unknown_short_option_value_ends_cluster},
     {"unknown long option", test_unknown_long_option},
+    {"stdin cannot be combined", test_stdin_cannot_be_combined},
+    {"check and in place conflict", test_check_and_in_place_conflict},
+    {"in place rejects stdin", test_in_place_rejects_stdin},
     {"version accessor present", test_version_accessor_present},
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
