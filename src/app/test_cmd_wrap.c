@@ -179,6 +179,48 @@ static void test_reports_missing_file(void) {
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
 }
 
+// Two inputs that both fail in check mode append one diagnostic line each, so neither is lost to
+// the other. This is the postcondition `cmd_wrap_run` states for check mode and the reason the
+// diagnostic buffer is growable rather than a fixed buffer: an `append_error` that overwrote, or
+// that dropped the separator and ran two messages together, would still satisfy every single-file
+// test.
+static void test_reports_one_line_per_failing_file(void) {
+  char missing_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
+  if (init_fixture_file(missing_path, "", 0) == NULL) {
+    return;
+  }
+  (void)unlink(missing_path);
+  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
+  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
+    return;
+  }
+  char* paths[] = {missing_path, file_path};
+  const struct WrapOptions options = {
+      .width = 40,
+      .paths = paths,
+      .path_count = 2,
+      .is_check = true,
+  };
+
+  char stdout_out[1024];
+  char stderr_out[1024];
+  const enum ExitCode rc =
+      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
+  TEST_CHECK(rc == EXIT_CODE_FAILURE);
+  TEST_CHECK(stdout_out[0] == '\0');
+  // Paths are reported in argument order. Compared whole, with the separator in the middle, so a
+  // dropped newline or a lost line both fail here.
+  char reason[FS_REASON_SIZE];
+  char expected[ERROR_MESSAGE_SIZE * 2];
+  const int expected_len =
+      snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')\nwould rewrap '%s'\n",
+               error_system_message(reason, sizeof(reason), ENOENT), missing_path, file_path);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+  TEST_CHECK(strcmp(stderr_out, expected) == 0);
+}
+
 // A source that rewrites successfully but cannot be written out fails with the stream's own reason
 // instead of returning success when nobody received the output. A read-only `/dev/null` on
 // `STDOUT_FILENO` deterministically reaches the buffered flush failure. This test redirects the
@@ -228,6 +270,7 @@ TEST_LIST = {
     {"reports check change", test_reports_check_change},
     {"rewrites in place", test_rewrites_in_place},
     {"reports missing file", test_reports_missing_file},
+    {"reports one line per failing file", test_reports_one_line_per_failing_file},
     {"reports unwritable stdout", test_reports_unwritable_stdout},
     {NULL, NULL},
 };
