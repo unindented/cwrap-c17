@@ -43,8 +43,10 @@ enum ExitCode cmd_wrap_run(const struct WrapOptions* options) {
     }
   }
   if (has_failed) {
-    // `error_buffer` is empty only when recording the diagnostic itself ran out of memory. The
-    // fallback keeps that failure visible instead of reporting a silent non-zero exit.
+    // `error_buffer` comes back empty only when recording the diagnostic itself ran out of memory,
+    // so the fallback keeps the failure visible. The fallback also makes the discarded
+    // `(void)append_error(...)` results in `wrap_input.c` safe. An append that fails loses its own
+    // line rather than the failure, and a run whose every append failed prints this line instead.
     fprintf(stderr, "%s\n", error_buffer.data != NULL ? error_buffer.data : "wrap failed");
     goto cleanup;
   }
