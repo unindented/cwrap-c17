@@ -70,6 +70,13 @@ if(CMAKE_CROSSCOMPILING)
   set(cwrap_cppcheck_command "")
 endif()
 
+# Production and test targets run cppcheck with the same arguments, except that test targets also
+# honor inline suppressions, for the `deallocuse` false positive on a stream that a borrowing callee
+# leaves open.
+set(cwrap_cppcheck_property
+    "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--quiet"
+)
+
 function(cwrap_enable_project_analysis target)
   if(cwrap_clang_tidy_command)
     set_property(
@@ -79,21 +86,13 @@ function(cwrap_enable_project_analysis target)
     )
   endif()
   if(cwrap_cppcheck_command)
-    set_property(
-      TARGET ${target}
-      PROPERTY C_CPPCHECK
-               "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--quiet"
-    )
+    set_property(TARGET ${target} PROPERTY C_CPPCHECK "${cwrap_cppcheck_property}")
   endif()
 endfunction()
 
 function(cwrap_enable_test_analysis target)
   if(cwrap_cppcheck_command)
-    set_property(
-      TARGET ${target}
-      PROPERTY C_CPPCHECK
-               "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--inline-suppr;--quiet"
-    )
+    set_property(TARGET ${target} PROPERTY C_CPPCHECK "${cwrap_cppcheck_property};--inline-suppr")
   endif()
 endfunction()
 
