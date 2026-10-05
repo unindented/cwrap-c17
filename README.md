@@ -114,7 +114,7 @@ Presets keep every build out of the source tree. The commands below use eight pa
 
 #### Debug build
 
-The debug build enables `AddressSanitizer` and `UndefinedBehaviorSanitizer`. It also runs `clang-tidy` and `cppcheck` during compilation when they are available.
+The debug build enables AddressSanitizer and UndefinedBehaviorSanitizer. It also runs `clang-tidy` and `cppcheck` during compilation when they are available.
 
 ```sh
 cmake --preset debug

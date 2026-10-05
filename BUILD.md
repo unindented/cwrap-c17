@@ -71,6 +71,8 @@ Generator expressions select configuration options at build time. The same rules
 
 `CWRAP_SANITIZER` accepts `none` or `address`. The `address` option enables AddressSanitizer and UndefinedBehaviorSanitizer. It adds sanitizer options to standard CMake configurations. It does not create custom build types.
 
+The address-sanitizer profile instruments first-party and vendored code. `cwrap_vendor_sharedstuff` builds with the first-party profile, so vendored code also retains the full sanitizer set.
+
 ## Linting and formatting
 
 CMake sets `clang-tidy` and `cppcheck` as properties of first-party targets. Neither tool checks vendored code.
@@ -92,6 +94,8 @@ Each source directory adds its local unit tests. The top-level `tests/` director
 `cwrap_test_support` holds the unit-test plumbing that several `test_*.c` files need: a fixture-file creator, standard-stream capture and restore, and a capture-stream reader. Its own unit test is `tests/test_test_support.c`. `test_support.c` defines `TEST_NO_MAIN`, so acutest's `main` and run state stay in each test executable's own translation unit and the link resolves `acutest_check_` and `acutest_abort_` against it. A failure raised inside the support library is reported against `test_support.c` and fails the test that reached it.
 
 A parent that enables `cwrap` tests must call `enable_testing()` in its top-level `CMakeLists.txt`. CTest starts discovery at the build root. A child call cannot create the root test file. CMake prints this requirement when a child enables tests.
+
+Each unit test links the same `cwrap_app` as the executable. No test target compiles an application source a second time with different definitions.
 
 The golden test uses a separate scratch tree. It rewraps every fixture at width 40. The CMake script then compares the fixture inventory with `tests/expected/` and compares each result with its expected file byte for byte.
 
