@@ -11,7 +11,10 @@ struct WrapOptions {
   /** Wrapping column. Must be at least 1. */
   size_t width;
 
-  /** Whether to read the single source from `stdin` instead of from `paths`. Mutually exclusive. */
+  /**
+   * Whether to read the single source from `stdin` instead of from `paths`. Mutually exclusive with
+   * a non-empty `paths`.
+   */
   bool is_stdin;
 
   /** File input paths. Every item must be non-`NULL`. Must be `NULL` in standard-input mode. */
@@ -30,10 +33,9 @@ struct WrapOptions {
 /**
  * @brief Runs the wrap command: reads, rewrites, and emits the selected inputs.
  *
- * Input is either the paths array or `stdin`; the two modes are mutually exclusive. In the default
- * mode, prints each rewritten input to `stdout`. In in-place mode, overwrites each changed file. In
- * check mode, emits no rewritten source and reports every input that would change. On failure,
- * prints the collected diagnostic to `stderr`.
+ * In the default mode, prints each rewritten input to `stdout`. In in-place mode, overwrites each
+ * changed file. In check mode, emits no rewritten source and reports every input that would change.
+ * On failure, prints the collected diagnostic to `stderr`.
  *
  * @param options Wrap knobs such as width and write mode. Must not be `NULL`.
  * @return `EXIT_CODE_OK` when every input is already wrapped or was emitted successfully, or
