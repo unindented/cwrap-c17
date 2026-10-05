@@ -92,9 +92,9 @@ static void test_help_action_reports_ok(void) {
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
 }
 
-// The wrap command receives the parsed path, width, and in-place option rather than dropping them
-// at the dispatch boundary. The changed file is the externally visible evidence that all three
-// fields reached `cmd_wrap_run`.
+// The wrap command is dispatched to `cmd_wrap_run` with the parsed options attached, so the path,
+// the width, and the in-place flag reach the rewrap rather than being dropped on the way. The
+// rewritten file is the only externally visible evidence that all three fields were carried across.
 static void test_wrap_command_receives_parsed_options(void) {
   char file_path[] = "/tmp/cwrap-dispatch-source.XXXXXX";
   if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
@@ -110,7 +110,7 @@ static void test_wrap_command_receives_parsed_options(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
-  // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
   (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
@@ -119,8 +119,9 @@ static void test_wrap_command_receives_parsed_options(void) {
   }
 }
 
-// Check mode also reaches the wrap command. It reports a source that would change and leaves that
-// source untouched, proving `is_check` is carried across the dispatch boundary.
+// Check mode is dispatched to `cmd_wrap_run` the same way, so the check flag reaches the rewrap
+// rather than being dropped on the way. The would-rewrap diagnostic and the untouched source are
+// the only externally visible evidence that it was carried across.
 static void test_wrap_command_receives_check_option(void) {
   char file_path[] = "/tmp/cwrap-dispatch-check.XXXXXX";
   if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
@@ -131,7 +132,7 @@ static void test_wrap_command_receives_check_option(void) {
   struct DispatchOutput dispatch_out;
   TEST_CHECK(dispatch_capturing(4, argv, &dispatch_out) == EXIT_CODE_FAILURE);
   TEST_CHECK(dispatch_out.stdout_out[0] == '\0');
-  char expected[4096];
+  char expected[ERROR_MESSAGE_SIZE];
   const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
   TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(dispatch_out.stderr_out, expected) == 0);
@@ -139,7 +140,7 @@ static void test_wrap_command_receives_check_option(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
-  // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
   (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {

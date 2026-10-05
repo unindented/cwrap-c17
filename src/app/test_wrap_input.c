@@ -114,11 +114,11 @@ static void test_file_read_error_result(void) {
   const enum WrapInputResult result =
       wrap_input_process_file(file_path, 40, false, true, &error_buffer);
 
-  char system_message[ERROR_MESSAGE_SIZE];
+  char reason[ERROR_MESSAGE_SIZE];
   char expected[ERROR_MESSAGE_SIZE];
   const int expected_len =
       snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')",
-               error_system_message(system_message, sizeof(system_message), ENOENT), file_path);
+               error_system_message(reason, sizeof(reason), ENOENT), file_path);
   TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(result == WRAP_INPUT_RESULT_ERROR);
   TEST_CHECK(error_buffer.data != NULL && strcmp(error_buffer.data, expected) == 0);

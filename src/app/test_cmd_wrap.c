@@ -24,6 +24,8 @@ static const char wrap_fixture_source[] = "// one\n// two\n";
 /**
  * @brief Runs the wrap command while capturing both standard streams.
  *
+ * Restores both streams before returning.
+ *
  * @param options        Wrap options passed to `cmd_wrap_run`.
  * @param stdout_out     Buffer that receives terminated standard output.
  * @param stdout_out_len Size of `stdout_out` in bytes. Must be non-zero.
@@ -49,6 +51,34 @@ static enum ExitCode run_wrap_capturing(const struct WrapOptions* options,
     }
     has_plumbing_failed =
         capture_end(&stdout_capture, stdout_out, stdout_out_len) != 0 || has_plumbing_failed;
+  }
+  return has_plumbing_failed ? (enum ExitCode)TEST_PLUMBING_FAILED : rc;
+}
+
+/**
+ * @brief Runs the wrap command with an unwritable standard output stream.
+ *
+ * Captures the diagnostic and restores both streams before returning.
+ *
+ * @param options        Wrap options passed to `cmd_wrap_run`.
+ * @param stderr_out     Buffer that receives terminated standard error.
+ * @param stderr_out_len Size of `stderr_out` in bytes. Must be non-zero.
+ * @return The command exit code, or `TEST_PLUMBING_FAILED` on test-plumbing failure.
+ */
+static enum ExitCode run_wrap_with_unwritable_stdout(const struct WrapOptions* options,
+                                                     char* stderr_out,
+                                                     size_t stderr_out_len) {
+  stderr_out[0] = '\0';
+  enum ExitCode rc = (enum ExitCode)TEST_PLUMBING_FAILED;
+  bool has_plumbing_failed = true;
+  struct StreamCapture stdout_capture;
+  struct StreamCapture stderr_capture;
+  if (capture_begin_unwritable(stdout, &stdout_capture) == 0) {
+    if (capture_begin(stderr, &stderr_capture) == 0) {
+      rc = cmd_wrap_run(options);
+      has_plumbing_failed = capture_end(&stderr_capture, stderr_out, stderr_out_len) != 0;
+    }
+    has_plumbing_failed = capture_end(&stdout_capture, NULL, 0) != 0 || has_plumbing_failed;
   }
   return has_plumbing_failed ? (enum ExitCode)TEST_PLUMBING_FAILED : rc;
 }
@@ -221,10 +251,11 @@ static void test_reports_one_line_per_failing_file(void) {
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
 }
 
-// A source that rewrites successfully but cannot be written out fails with the stream's own reason
-// instead of returning success when nobody received the output. A read-only `/dev/null` on
-// `STDOUT_FILENO` deterministically reaches the buffered flush failure. This test redirects the
-// streams itself because `run_wrap_capturing` needs a writable `stdout` capture.
+// A source that rewrites fine but cannot be written out fails with the stream's own reason, rather
+// than exiting 0 when nobody received the output. The reason it reports is what lets the user tell
+// a closed pipe from a full disk. A read-only `/dev/null` on `STDOUT_FILENO` is the deterministic
+// way to reach that failure: the writes fail, and `cmd_wrap_run` reports it. The diagnostic still
+// reaches the captured `stderr`.
 static void test_reports_unwritable_stdout(void) {
   char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
   if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
@@ -237,25 +268,15 @@ static void test_reports_unwritable_stdout(void) {
       .path_count = 1,
   };
 
-  enum ExitCode rc = (enum ExitCode)TEST_PLUMBING_FAILED;
-  bool has_plumbing_failed = true;
-  char stderr_out[1024] = "";
-  struct StreamCapture stdout_capture;
-  struct StreamCapture stderr_capture;
-  if (capture_begin_unwritable(stdout, &stdout_capture) == 0) {
-    if (capture_begin(stderr, &stderr_capture) == 0) {
-      rc = cmd_wrap_run(&options);
-      has_plumbing_failed = capture_end(&stderr_capture, stderr_out, sizeof(stderr_out)) != 0;
-    }
-    has_plumbing_failed = capture_end(&stdout_capture, NULL, 0) != 0 || has_plumbing_failed;
-  }
+  char stderr_out[1024];
+  const enum ExitCode rc =
+      run_wrap_with_unwritable_stdout(&options, stderr_out, sizeof(stderr_out));
   // The file is removed before any assertion, so a failed one cannot leave it behind.
   (void)unlink(file_path);
 
-  TEST_CHECK(!has_plumbing_failed);
   TEST_CHECK(rc == EXIT_CODE_FAILURE);
-  // `EBADF`: the writes go to a descriptor opened read-only. Deriving the reason from libc keeps
-  // the assertion portable while the complete line comparison pins the command's own prefix.
+  // `EBADF`: the writes go to a descriptor opened read-only. The reason is derived from the running
+  // libc rather than hardcoded, and the whole line is compared so a reworded prefix fails too.
   char reason[ERROR_MESSAGE_SIZE];
   char expected[ERROR_MESSAGE_SIZE * 2];
   const int expected_len =
