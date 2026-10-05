@@ -38,7 +38,7 @@ struct CliOptions {
 
   /**
    * File input paths, pointing into the reordered `argv` passed to `cli_parse`. Every item is
-   * non-`NULL`. Valid until the caller returns from `cli_dispatch`. `NULL` in standard-input mode.
+   * non-`NULL`. Valid while the `argv` passed to `cli_parse` is. `NULL` in standard-input mode.
    */
   char** paths;
 
