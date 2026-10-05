@@ -96,10 +96,7 @@ int fs_read_file(const char* file_path,
   if (fstat(fd, &st) != 0) {
     rc = fs_reason_errno(reason, reason_len, errno);
   } else if (!S_ISREG(st.st_mode)) {
-    // `error_report` returns `-1`, but it lives in another translation unit, so the analyzer cannot
-    // see that and would follow a path where these checks leave `rc` at 0.
-    (void)error_report(reason, reason_len, "not a regular file");
-    rc = -1;
+    rc = error_report(reason, reason_len, "not a regular file");
   } else if ((uintmax_t)st.st_size > (uintmax_t)data_len_max) {
     // Check the limit against the `fstat` size, before anything is allocated or read, so an
     // oversize file costs one `fstat` rather than its whole size in memory. A file that grows past
@@ -107,9 +104,8 @@ int fs_read_file(const char* file_path,
     // beyond this size. `data_len_max` is below `SIZE_MAX` by contract, so passing this check also
     // keeps `size + 1` from wrapping to 0. Both sides widen to `uintmax_t` because `off_t` and
     // `size_t` may differ in width.
-    (void)error_report(reason, reason_len, "exceeds max file size (%zu bytes) at %ju bytes",
-                       data_len_max, (uintmax_t)st.st_size);
-    rc = -1;
+    rc = error_report(reason, reason_len, "exceeds max file size (%zu bytes) at %ju bytes",
+                      data_len_max, (uintmax_t)st.st_size);
   }
   if (rc == 0 && fcntl(fd, F_SETFL, 0) != 0) {
     rc = fs_reason_errno(reason, reason_len, errno);
