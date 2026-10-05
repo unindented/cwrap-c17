@@ -324,10 +324,12 @@ static void test_write_file_failure_preserves_existing_file(void) {
   (void)unlink(file_path);
 }
 
-// `fs_write_file` fails when the parent directory is missing and when the target is itself a
-// directory, and reports the two as different system reasons. cwrap does not create parent
-// directories, so creating the sibling temporary file fails when the parent is absent.
-static void test_write_file_rejects_missing_parent_and_dir_target(void) {
+// `fs_write_file` fails when the parent directory is missing, when a parent component is a regular
+// file, and when the target is itself a directory, and reports the three as different system
+// reasons. cwrap does not create parent directories, so an absent parent is a failure rather than
+// something to fill in. A file in the parent position fails the destination `stat` with `ENOTDIR`
+// before any temporary file is created.
+static void test_write_file_rejects_missing_or_file_parent_and_dir_target(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-write-fail.XXXXXX";
   const char* root_dir = mkdtemp(root_dir_template);
   TEST_ASSERT(root_dir != NULL);
@@ -348,6 +350,27 @@ static void test_write_file_rejects_missing_parent_and_dir_target(void) {
   TEST_CHECK(fs_write_file(missing_parent_path, "x", 1, reason, sizeof(reason)) == -1);
   char expected[FS_REASON_SIZE];
   TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
+
+  char blocking_file[PATH_MAX];
+  const int blocking_n = snprintf(blocking_file, sizeof(blocking_file), "%s/plain.c", root_dir);
+  TEST_ASSERT(blocking_n > 0 && (size_t)blocking_n < sizeof(blocking_file));
+  if (blocking_n <= 0 || (size_t)blocking_n >= sizeof(blocking_file)) {
+    (void)rmdir(root_dir);
+    return;
+  }
+  char through_file[PATH_MAX];
+  const int through_n = snprintf(through_file, sizeof(through_file), "%s/x.c", blocking_file);
+  TEST_ASSERT(through_n > 0 && (size_t)through_n < sizeof(through_file));
+  if (through_n <= 0 || (size_t)through_n >= sizeof(through_file)) {
+    (void)rmdir(root_dir);
+    return;
+  }
+  TEST_CHECK(fs_write_file(blocking_file, "x", 1, NULL, 0) == 0);
+
+  reason[0] = '\0';
+  TEST_CHECK(fs_write_file(through_file, "x", 1, reason, sizeof(reason)) == -1);
+  (void)unlink(blocking_file);
+  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOTDIR)) == 0);
 
   char dir_target[PATH_MAX];
   const int target_n = snprintf(dir_target, sizeof(dir_target), "%s/target", root_dir);
@@ -379,7 +402,7 @@ TEST_LIST = {
      test_write_file_applies_umask_and_keeps_existing_mode},
     {"write file follows symbolic link", test_write_file_follows_symbolic_link},
     {"write file failure preserves existing file", test_write_file_failure_preserves_existing_file},
-    {"write file rejects missing parent and dir target",
-     test_write_file_rejects_missing_parent_and_dir_target},
+    {"write file rejects missing or file parent and dir target",
+     test_write_file_rejects_missing_or_file_parent_and_dir_target},
     {NULL, NULL},
 };
