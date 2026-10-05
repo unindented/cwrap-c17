@@ -107,6 +107,22 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
     __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Resolves the positional file arguments into the input mode.
+ *
+ * Selects standard input when no positional argument is present or the only one is `-`. Otherwise
+ * points `options->paths` at the positional tail of `argv`, or records a diagnostic when `-` is
+ * repeated or combined with a file.
+ *
+ * @param options          Options receiving the resolved input and any diagnostic. Must not be
+ *                         `NULL`.
+ * @param argc             Argument count.
+ * @param argv             Argument vector. Must not be `NULL`.
+ * @param positional_index Index of the first positional argument, from `copt_idx`.
+ */
+static void cli_parse_paths(struct CliOptions* options, int argc, char** argv, int positional_index)
+    __attribute__((nonnull(1, 3)));
+
+/**
  * @brief Flushes `stream` and reports whether any write to it failed, leaving a reason in `errno`.
  *
  * The check needs both halves. `fflush` reports a write that fails now, when the buffered bytes
@@ -164,30 +180,7 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
     }
   }
 
-  const int positional_index = copt_idx(&opt);
-  if (positional_index < argc) {
-    options->paths = argv + positional_index;
-    options->path_count = argc - positional_index;
-  }
-
-  int stdin_path_count = 0;
-  for (int i = 0; i < options->path_count; i++) {
-    if (strcmp(options->paths[i], "-") == 0) {
-      stdin_path_count++;
-    }
-  }
-  if (options->path_count == 0) {
-    options->is_stdin = true;
-  } else if (stdin_path_count > 1) {
-    record_error(options, "standard input may be specified only once");
-  } else if (stdin_path_count == 1 && options->path_count > 1) {
-    record_error(options, "standard input cannot be combined with file inputs");
-  } else if (stdin_path_count == 1) {
-    // Normalize explicit `-` to the same representation as implicit standard input.
-    options->paths = NULL;
-    options->path_count = 0;
-    options->is_stdin = true;
-  }
+  cli_parse_paths(options, argc, argv, copt_idx(&opt));
 
   // Version wins over everything. Help then beats a genuine parse error.
   if (has_version || has_help) {
@@ -316,6 +309,35 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
                  (size_t)WRAP_COLUMN_MAX, width);
   } else {
     options->width = width;
+  }
+}
+
+static void cli_parse_paths(struct CliOptions* options,
+                            int argc,
+                            char** argv,
+                            int positional_index) {
+  if (positional_index < argc) {
+    options->paths = argv + positional_index;
+    options->path_count = argc - positional_index;
+  }
+
+  int stdin_path_count = 0;
+  for (int i = 0; i < options->path_count; i++) {
+    if (strcmp(options->paths[i], "-") == 0) {
+      stdin_path_count++;
+    }
+  }
+  if (options->path_count == 0) {
+    options->is_stdin = true;
+  } else if (stdin_path_count > 1) {
+    record_error(options, "standard input may be specified only once");
+  } else if (stdin_path_count == 1 && options->path_count > 1) {
+    record_error(options, "standard input cannot be combined with file inputs");
+  } else if (stdin_path_count == 1) {
+    // Normalize explicit `-` to the same representation as implicit standard input.
+    options->paths = NULL;
+    options->path_count = 0;
+    options->is_stdin = true;
   }
 }
 
