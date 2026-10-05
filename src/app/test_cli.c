@@ -158,16 +158,17 @@ static void test_program_name_survives_permutation(void) {
   char* program_name = argv[0];
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 40);
   TEST_CHECK(argv[0] == program_name);
   TEST_CHECK(strcmp(argv[0], "cwrap") == 0);
 }
 
 // Flags placed after the file are still parsed, and the file stays in the positional tail.
 static void test_options_after_file(void) {
-  char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
+  char* argv[] = {"cwrap", "a.c", "-w", "30", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 40);
+  TEST_CHECK(options.width == 30);
   TEST_CHECK(options.path_count == 1);
   TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
 }
