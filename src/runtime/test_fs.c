@@ -388,6 +388,45 @@ static void test_write_file_rejects_missing_or_file_parent_and_dir_target(void) 
   (void)rmdir(root_dir);
 }
 
+// A dangling symbolic link fails with the `ENOENT` that `realpath` reports instead of creating the
+// file the link names, and nothing is left in the link's directory. Following the link to a missing
+// target would otherwise write a file at a path the caller never passed.
+static void test_write_file_rejects_dangling_symbolic_link(void) {
+  char root_dir_template[] = "/tmp/cwrap-fs-dangling.XXXXXX";
+  const char* root_dir = mkdtemp(root_dir_template);
+  TEST_ASSERT(root_dir != NULL);
+  if (root_dir == NULL) {
+    return;
+  }
+
+  char target_path[PATH_MAX];
+  const int target_n = snprintf(target_path, sizeof(target_path), "%s/missing.c", root_dir);
+  char link_path[PATH_MAX];
+  const int link_n = snprintf(link_path, sizeof(link_path), "%s/link.c", root_dir);
+  char reason[FS_REASON_SIZE] = "";
+  char expected[FS_REASON_SIZE];
+  struct stat target_st;
+  if (!TEST_CHECK(target_n > 0 && (size_t)target_n < sizeof(target_path))) {
+    goto cleanup;
+  }
+  if (!TEST_CHECK(link_n > 0 && (size_t)link_n < sizeof(link_path))) {
+    goto cleanup;
+  }
+  if (!TEST_CHECK(symlink(target_path, link_path) == 0)) {
+    goto cleanup;
+  }
+
+  TEST_CHECK(fs_write_file(link_path, "x", 1, reason, sizeof(reason)) == -1);
+  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
+  TEST_CHECK(lstat(target_path, &target_st) != 0);
+
+cleanup:
+  (void)unlink(target_path);
+  (void)unlink(link_path);
+  // `rmdir` succeeds only on an empty directory, so it also proves no temporary was left behind.
+  TEST_CHECK(rmdir(root_dir) == 0);
+}
+
 TEST_LIST = {
     {"read file accepts empty", test_read_file_accepts_empty},
     {"read file accepts file at limit", test_read_file_accepts_file_at_limit},
@@ -403,5 +442,6 @@ TEST_LIST = {
     {"write file failure preserves existing file", test_write_file_failure_preserves_existing_file},
     {"write file rejects missing or file parent and dir target",
      test_write_file_rejects_missing_or_file_parent_and_dir_target},
+    {"write file rejects dangling symbolic link", test_write_file_rejects_dangling_symbolic_link},
     {NULL, NULL},
 };

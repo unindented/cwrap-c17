@@ -58,8 +58,9 @@ int fs_read_file(const char* file_path,
  * @brief Atomically writes `data_len` bytes to `file_path`.
  *
  * Writes and closes a sibling temporary file before renaming it over the destination, so a failed
- * write leaves an existing file untouched. Follows a symbolic link rather than replacing it. Does
- * not create missing parent directories.
+ * write leaves an existing file untouched. Follows a symbolic link rather than replacing it. A
+ * dangling symbolic link fails, with the `ENOENT` that `realpath` reports, rather than creating the
+ * file the link names. Does not create missing parent directories.
  *
  * A reader sees either the previous complete file or the new complete file. The temporary is
  * `fsync`ed before the `rename`, so its bytes reach the device before the name that publishes them
