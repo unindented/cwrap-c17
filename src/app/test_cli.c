@@ -59,38 +59,6 @@ static void test_dash_selects_stdin(void) {
   TEST_CHECK(options.path_count == 0);
 }
 
-// `--width` stores a parsed positive column.
-static void test_width_long_flag(void) {
-  char* argv[] = {"cwrap", "--width", "40", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 40);
-}
-
-// `-w` is the short form of `--width`.
-static void test_width_short_flag(void) {
-  char* argv[] = {"cwrap", "-w", "80", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 80);
-}
-
-// `-w80` sets the wrapping column from a value attached to the short flag.
-static void test_width_short_flag_attached_value(void) {
-  char* argv[] = {"cwrap", "-w80", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 80);
-}
-
-// `--width=60` sets the wrapping column from an `=`-joined value.
-static void test_width_long_flag_equals_value(void) {
-  char* argv[] = {"cwrap", "--width=60", "a.c", NULL};
-  struct CliOptions options = parse(argv);
-  TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == 60);
-}
-
 // `--check` enables check mode.
 static void test_check_long_flag(void) {
   char* argv[] = {"cwrap", "--check", "a.c", NULL};
@@ -121,6 +89,38 @@ static void test_in_place_short_flag(void) {
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.is_in_place);
+}
+
+// `--width 40` sets the wrapping column from a separate token.
+static void test_width_long_flag_separate_value(void) {
+  char* argv[] = {"cwrap", "--width", "40", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 40);
+}
+
+// `-w 80` sets the wrapping column from a separate token.
+static void test_width_short_flag_separate_value(void) {
+  char* argv[] = {"cwrap", "-w", "80", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 80);
+}
+
+// `-w80` sets the wrapping column from a value attached to the flag.
+static void test_width_short_flag_attached_value(void) {
+  char* argv[] = {"cwrap", "-w80", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 80);
+}
+
+// `--width=60` sets the wrapping column from an `=`-joined value.
+static void test_width_long_flag_equals_value(void) {
+  char* argv[] = {"cwrap", "--width=60", "a.c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.width == 60);
 }
 
 // An `=`-joined value inside a short cluster reaches the one flag it is attached to, leaving the
@@ -220,19 +220,19 @@ static void test_version_flag_wins_over_help(void) {
 // precedence, per `test_attached_value_rejected_on_valueless_short_flags`.
 static void test_informational_flag_clears_diagnostic(void) {
   char* help_argv[] = {"cwrap", "--frobnicate", "--help", NULL};
-  struct CliOptions help_options = parse(help_argv);
-  TEST_CHECK(help_options.action == CLI_ACTION_HELP);
-  TEST_CHECK(help_options.error_message[0] == '\0');
+  struct CliOptions options = parse(help_argv);
+  TEST_CHECK(options.action == CLI_ACTION_HELP);
+  TEST_CHECK(options.error_message[0] == '\0');
 
   char* version_argv[] = {"cwrap", "--frobnicate", "--version", NULL};
-  struct CliOptions version_options = parse(version_argv);
-  TEST_CHECK(version_options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(version_options.error_message[0] == '\0');
+  options = parse(version_argv);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+  TEST_CHECK(options.error_message[0] == '\0');
 
   char* cluster_argv[] = {"cwrap", "-Vx", NULL};
-  struct CliOptions cluster_options = parse(cluster_argv);
-  TEST_CHECK(cluster_options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(cluster_options.error_message[0] == '\0');
+  options = parse(cluster_argv);
+  TEST_CHECK(options.action == CLI_ACTION_VERSION);
+  TEST_CHECK(options.error_message[0] == '\0');
 }
 
 // A valid `--version` wins in either order next to a rejected `--version=1`. The rejected spelling
@@ -290,10 +290,10 @@ static void test_in_place_rejects_stdin(void) {
 
 // A non-numeric wrapping column is rejected with a diagnostic naming the offending value.
 static void test_invalid_width_rejected(void) {
-  char* argv[] = {"cwrap", "--width", "nope", "a.c", NULL};
+  char* argv[] = {"cwrap", "--width", "abc", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '--width' must be a positive integer: 'nope'") ==
+  TEST_CHECK(strcmp(options.error_message, "option '--width' must be a positive integer: 'abc'") ==
              0);
 }
 
@@ -455,10 +455,10 @@ static void test_unknown_short_option_value_ends_cluster(void) {
 
 // An unrecognized long option is rejected with a diagnostic naming the option.
 static void test_unknown_long_option(void) {
-  char* argv[] = {"cwrap", "--nope", "a.c", NULL};
+  char* argv[] = {"cwrap", "--frobnicate", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "unknown option '--nope'") == 0);
+  TEST_CHECK(strcmp(options.error_message, "unknown option '--frobnicate'") == 0);
 }
 
 // The generated version accessor returns a non-empty version.
@@ -480,8 +480,9 @@ static void test_print_version_writes_version_line(void) {
   TEST_ASSERT(rc == 0);
 
   char expected[64];
-  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
+  const int expected_len =
+      snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(buf, expected) == 0);
   TEST_CHECK(len == strlen(expected));
   free(buf);
@@ -582,14 +583,14 @@ TEST_LIST = {
     {"file argument runs at default width", test_file_argument_runs_at_default_width},
     {"no args select stdin", test_no_args_select_stdin},
     {"dash selects stdin", test_dash_selects_stdin},
-    {"width long flag", test_width_long_flag},
-    {"width short flag", test_width_short_flag},
-    {"width short flag attached value", test_width_short_flag_attached_value},
-    {"width long flag equals value", test_width_long_flag_equals_value},
     {"check long flag", test_check_long_flag},
     {"check short flag", test_check_short_flag},
     {"in place long flag", test_in_place_long_flag},
     {"in place short flag", test_in_place_short_flag},
+    {"width long flag separate value", test_width_long_flag_separate_value},
+    {"width short flag separate value", test_width_short_flag_separate_value},
+    {"width short flag attached value", test_width_short_flag_attached_value},
+    {"width long flag equals value", test_width_long_flag_equals_value},
     {"width short flag in cluster equals value", test_width_short_flag_in_cluster_equals_value},
     {"mixed flag order", test_mixed_flag_order},
     {"program name survives permutation", test_program_name_survives_permutation},

@@ -73,8 +73,9 @@ static void test_version_action_reports_ok(void) {
   struct DispatchOutput dispatch_out;
   TEST_CHECK(dispatch_capturing(2, argv, &dispatch_out) == EXIT_CODE_OK);
   char expected[64];
-  const int n = snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
+  const int expected_len =
+      snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(dispatch_out.stdout_out, expected) == 0);
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
 }
@@ -131,8 +132,8 @@ static void test_wrap_command_receives_check_option(void) {
   TEST_CHECK(dispatch_capturing(4, argv, &dispatch_out) == EXIT_CODE_FAILURE);
   TEST_CHECK(dispatch_out.stdout_out[0] == '\0');
   char expected[4096];
-  const int n = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(expected));
+  const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
+  TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(dispatch_out.stderr_out, expected) == 0);
 
   char* file_data = NULL;

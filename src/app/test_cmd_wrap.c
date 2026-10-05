@@ -99,8 +99,8 @@ static void test_reports_check_change(void) {
   TEST_CHECK(rc == EXIT_CODE_FAILURE);
   TEST_CHECK(stdout_out[0] == '\0');
   char expected[ERROR_MESSAGE_SIZE];
-  const int n = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
-  TEST_ASSERT(n > 0 && (size_t)n < sizeof(expected));
+  const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
 
   char* file_data = NULL;
@@ -170,9 +170,10 @@ static void test_reports_missing_file(void) {
   TEST_CHECK(stdout_out[0] == '\0');
   char reason[FS_REASON_SIZE];
   char expected[ERROR_MESSAGE_SIZE];
-  const int n = snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')\n",
-                         error_system_message(reason, sizeof(reason), ENOENT), missing_path);
-  TEST_ASSERT(n > 0 && (size_t)n < sizeof(expected));
+  const int expected_len =
+      snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')\n",
+               error_system_message(reason, sizeof(reason), ENOENT), missing_path);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
 }
 
