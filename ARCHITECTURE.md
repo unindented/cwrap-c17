@@ -6,7 +6,7 @@
 
 - [src/app/](src/app/): Process entry point, command-line interface, and command boundary.
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
-- [src/runtime/](src/runtime/): Filesystem services that interact with the host.
+- [src/runtime/](src/runtime/): Filesystem and stream services that interact with the host.
 - [src/core/](src/core/): Small reusable primitives for diagnostics, parsing, and ASCII classification.
 - [tests/](tests/): Golden and idempotence test suites and the shared unit-test support library ([tests/test_support.h](tests/test_support.h)). Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence check also rewraps these files and every first-party source file at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): Project entry point and supported build configurations.
@@ -29,10 +29,10 @@ A module can skip layers. Modules in the same directory can depend on each other
 
 The command has two layers:
 
-- `cmd_wrap_run` is the command boundary. It selects standard input or iterates through the input paths and delegates each input to [wrap_input](src/app/wrap_input.h). Check mode continues after both changed and error results so it can report every file that would change and every processing failure. The boundary flushes default-mode output and prints any collected diagnostic to `stderr` exactly once.
+- `cmd_wrap_run` is the outer boundary. It selects standard input or iterates through the input paths and delegates each input to [wrap_input](src/app/wrap_input.h). Check mode continues after both changed and error results so it can report every file that would change and every processing failure. The boundary flushes default-mode output and prints any collected diagnostic to `stderr` exactly once.
 - `wrap_input` owns the resources for one input and runs its read, rewrite, and emit steps. Its file and stream entry points share the same in-memory rewrite path. `WrapInputResult` distinguishes success, a check-mode change, and an operational error. The module writes rewritten source to `stdout` in the default mode, writes only a changed file in in-place mode, and writes nothing in check mode.
 
-No domain or runtime module writes a failure diagnostic directly to `stderr`. Each fallible operation returns errors to its caller through a fixed `(char* err, size_t err_len)` or `(char* reason, size_t reason_len)` pair. The command appends per-input failures to a growable `StringBuffer`.
+No domain or runtime module writes a failure diagnostic directly to `stderr`. Each fallible operation returns errors to its caller. It returns one message through a fixed `(char* err, size_t err_len)` or `(char* reason, size_t reason_len)` pair. `wrap_input` adds the input name and appends each message to a growable `StringBuffer`, one line each.
 
 ## Wrap pipeline
 
@@ -63,7 +63,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 ### Runtime (`src/runtime`)
 
-- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes `fsync` and close a sibling temporary file before renaming it over the destination, preserving an existing file on failure. An existing destination keeps its permission bits, and a new file gets `0666` minus the umask. `fs_read_file` takes a size limit from each caller and checks it against the `fstat` size of the opened file before any read or allocation.
+- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during a read. Writes `fsync` and close a sibling temporary file before renaming it over the destination, preserving an existing file on failure. An existing destination keeps its permission bits. A new file gets mode `0666` reduced by the process umask. `fs_read_file` takes a size limit from each caller and checks it against the `fstat` size of the opened file before any read or allocation.
 - [stream](src/runtime/stream.h): Buffers a potentially non-seekable, `NUL`-free stream through EOF without closing it.
 
 ### Core (`src/core`)
@@ -78,10 +78,11 @@ Rewrapping is idempotent: a second pass over the output of a first must change n
 
 ## Cross-cutting conventions
 
-- **Ownership**: Arenas own the temporary allocations made while rewriting one source. File and stream reads return a separate buffer that the caller frees. A `StringBuffer` owns its growable allocation until it is freed or `string_buffer_steal` transfers that allocation to the caller.
-- **Text representation**: An input read produces a terminated, `NUL`-free buffer plus its byte length. The lexer and wrapping pipeline use borrowed slices into that buffer. The embedded-`NUL` check prevents silent truncation when the buffer is used as a C string.
+- **Ownership**: Arenas own groups of allocations. `wrap_input` owns one arena for the temporary allocations made while rewriting one source. Some functions return a separate buffer. These functions include `string_buffer_steal`, `fs_read_file`, and `stream_read_all`. They transfer buffer ownership to the caller. The caller must free the buffer.
+- **Text representation**: An owned string is a `NUL`-free C string. An input read produces a terminated buffer plus its byte length. The lexer and wrapping pipeline use borrowed slices into that buffer.
+- **Text input checks**: `fs_read_file` and `stream_read_all` reject input that contains a `NUL`. These checks prevent silent truncation when the buffer is used as a C string. `fs_read_file` reports this policy failure separately from system errors.
+- **Return values**: A producer returns a pointer or `NULL`. An action returns `0` or `-1`. A predicate returns `bool`. An operation with a third, non-error outcome returns an enum; `wrap_input` uses `WrapInputResult` to keep a check-mode change distinct from an operational error.
+- **Diagnostic buffers**: A fallible action can take a final `(char* err, size_t err_len)` pair. `error_report` fills this buffer and marks truncated text with `...`. Filesystem and stream actions use a `(char* reason, size_t reason_len)` pair instead. This pair contains a reason fragment. The caller adds the operation and file information.
+- **Diagnostic text**: First-party diagnostics use lowercase prose and name the failed operation first. They use single quotes for literal names and values. External messages keep their original capitalization and punctuation. An unbounded value follows the cause, so truncation removes the value instead of the reason.
 - **Input size limits**: Each `fs_read_file` caller passes a limit for the kind of file it reads. The read checks the limit before it allocates, so an oversize file is never loaded. `SOURCE_FILE_LEN_MAX` in `wrap_input` is 64 MiB for each source file. `stream_read_all` has no size to check before it reads standard input, so standard input has no size limit.
 - **Line endings**: Each comment block records whether its source uses LF or CRLF. Refilled lines use that same convention, while untouched source bytes pass through unchanged.
-- **Return values**: A producer returns a pointer or `NULL`. An action returns `0` or `-1`. A predicate returns `bool`. An operation with a third, non-error outcome returns an enum; `wrap_input` uses `WrapInputResult` to keep a check-mode change distinct from an operational error.
-- **Diagnostic buffers**: A fallible action can take a final `(char* err, size_t err_len)` pair. `error_report` fills this buffer and marks truncated text with `...`. Filesystem actions use a `(char* reason, size_t reason_len)` pair instead. This pair contains a reason fragment. The caller adds the operation and file information.
-- **Diagnostic text**: First-party diagnostics use lowercase prose and name the failed operation first. They use single quotes for literal names and values. External messages keep their original capitalization and punctuation. An unbounded value follows the cause, so truncation removes the value instead of the reason.
