@@ -93,9 +93,11 @@ Each source directory adds its local unit tests. The top-level `tests/` director
 
 A parent that enables `cwrap` tests must call `enable_testing()` in its top-level `CMakeLists.txt`. CTest starts discovery at the build root. A child call cannot create the root test file. CMake prints this requirement when a child enables tests.
 
-The golden test uses a separate scratch tree. Its CMake script collects fixture and expected files after `cwrap` runs. These runtime globs are not build inputs. Fixture changes do not require CMake to configure the project again.
+The golden test uses a separate scratch tree. It rewraps every fixture at width 40. The CMake script then compares the fixture inventory with `tests/expected/` and compares each result with its expected file byte for byte.
 
 The idempotence test uses another scratch tree. It rewraps fixture, expected, and first-party source files at widths 20, 40, 60, and 100. A second pass must make no change, and `--check` must agree that the first pass is stable.
+
+The CMake scripts collect their input files when each test runs. These runtime globs are not build inputs. Fixture changes do not require CMake to configure the project again.
 
 ## Version
 

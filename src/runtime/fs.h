@@ -29,8 +29,8 @@ enum { FS_REASON_SIZE = 256 };
  * becomes resident. Each caller passes the limit for the kind of file it reads.
  *
  * It also rejects a file containing an embedded `NUL` byte. This is the boundary that establishes
- * the codebase's text invariant. Every owned string is a `NUL`-free C string, so downstream payload
- * helpers can use terminated-string operations without truncating the source.
+ * the codebase's text invariant. Every owned string is a `NUL`-free C string, which makes
+ * recovering a length with `strlen` correct downstream.
  *
  * @param file_path    Path of the file to read. Must not be `NULL`.
  * @param data_len_max Largest accepted file size in bytes, excluding the terminator this adds. Must
