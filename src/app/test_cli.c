@@ -136,8 +136,8 @@ static void test_width_short_flag_in_cluster_equals_value(void) {
   TEST_CHECK(options.width == 40);
 }
 
-// A valueless option before the file and a width option after it are both applied in one parse. The
-// all-options-after-the-file placement is `test_options_after_file`.
+// A flag before the file and another after it are both applied in one parse. The
+// all-flags-after-the-file placement is `test_options_after_file`.
 static void test_mixed_flag_order(void) {
   char* argv[] = {"cwrap", "--check", "a.c", "--width", "40", NULL};
   struct CliOptions options = parse(argv);
@@ -162,7 +162,7 @@ static void test_program_name_survives_permutation(void) {
   TEST_CHECK(strcmp(argv[0], "cwrap") == 0);
 }
 
-// Options placed after a positional file are still parsed and the positional tail remains intact.
+// Flags placed after the file are still parsed, and the file stays in the positional tail.
 static void test_options_after_file(void) {
   char* argv[] = {"cwrap", "a.c", "--width", "40", NULL};
   struct CliOptions options = parse(argv);
@@ -172,7 +172,7 @@ static void test_options_after_file(void) {
   TEST_CHECK(strcmp(options.paths[0], "a.c") == 0);
 }
 
-// `--help` resolves to the help action without requiring an input.
+// `--help` resolves to the help action.
 static void test_help_long_flag(void) {
   char* argv[] = {"cwrap", "--help", NULL};
   struct CliOptions options = parse(argv);
@@ -186,7 +186,7 @@ static void test_help_short_flag(void) {
   TEST_CHECK(options.action == CLI_ACTION_HELP);
 }
 
-// `--version` resolves to the version action without requiring an input.
+// `--version` resolves to the version action.
 static void test_version_long_flag(void) {
   char* argv[] = {"cwrap", "--version", NULL};
   struct CliOptions options = parse(argv);

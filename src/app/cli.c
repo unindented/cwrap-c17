@@ -100,7 +100,7 @@ static int cli_parse_require_no_attached_value(struct CliOptions* options,
  * Records a diagnostic when the argument is missing, is not a positive integer, or exceeds
  * `WRAP_COLUMN_MAX`. On success stores the wrapping column.
  *
- * @param options Options receiving the width or a diagnostic. Must not be `NULL`.
+ * @param options Options receiving the wrapping column or a diagnostic. Must not be `NULL`.
  * @param opt     copt parser positioned on the `--width` option. Must not be `NULL`.
  */
 static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
@@ -182,7 +182,8 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
 
   cli_parse_paths(options, argc, argv, copt_idx(&opt));
 
-  // Version wins over everything. Help then beats a genuine parse error.
+  // Version wins over everything. Help then beats a genuine parse error. The parser rejects a mode
+  // conflict once no informational flag applies.
   if (has_version || has_help) {
     // An informational action replaces any diagnostic recorded above, so drop it rather than hand
     // back a message that does not describe the outcome. `error_message` is then non-empty exactly
