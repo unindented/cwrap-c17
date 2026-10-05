@@ -26,11 +26,14 @@ enum { TEST_FILE_LEN_MAX = 1024 };
  *
  * @param buf          Buffer that receives the terminated reason.
  * @param error_number System error number to describe.
- * @return `buf` containing the system message.
+ * @return `buf` containing the system message, or an empty `buf` after recording a test-plumbing
+ *         failure.
  */
 static const char* expected_errno_reason(char buf[static FS_REASON_SIZE], int error_number) {
   const int reason_len = snprintf(buf, FS_REASON_SIZE, "%s", strerror(error_number));
-  TEST_ASSERT(reason_len > 0 && (size_t)reason_len < FS_REASON_SIZE);
+  if (!TEST_CHECK(reason_len > 0 && (size_t)reason_len < FS_REASON_SIZE)) {
+    buf[0] = '\0';
+  }
   return buf;
 }
 
@@ -112,18 +115,23 @@ static void test_read_file_rejects_fifo(void) {
     return;
   }
   (void)unlink(fifo_path);
-  TEST_ASSERT(mkfifo(fifo_path, 0600) == 0);
 
   char sentinel[] = "unchanged";
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
+  if (!TEST_CHECK(mkfifo(fifo_path, 0600) == 0)) {
+    goto cleanup;
+  }
+
   TEST_CHECK(fs_read_file(fifo_path, TEST_FILE_LEN_MAX, &file_data, &file_len, reason,
                           sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
-  TEST_CHECK(unlink(fifo_path) == 0);
+
+cleanup:
+  (void)unlink(fifo_path);
 }
 
 // A file carrying an embedded `NUL` is rejected, leaving outputs untouched, and says so. This is
@@ -227,27 +235,29 @@ static void test_write_file_applies_umask_and_keeps_existing_mode(void) {
   const int created_n = snprintf(created, sizeof(created), "%s/created.c", root_dir);
   char existing[PATH_MAX];
   const int existing_n = snprintf(existing, sizeof(existing), "%s/existing.c", root_dir);
-  TEST_ASSERT(created_n > 0 && (size_t)created_n < sizeof(created));
-  TEST_ASSERT(existing_n > 0 && (size_t)existing_n < sizeof(existing));
-  if (created_n <= 0 || (size_t)created_n >= sizeof(created) || existing_n <= 0 ||
-      (size_t)existing_n >= sizeof(existing)) {
-    (void)rmdir(root_dir);
-    return;
+  mode_t previous_umask = 0;
+  struct stat st;
+  if (!TEST_CHECK(created_n > 0 && (size_t)created_n < sizeof(created))) {
+    goto cleanup;
+  }
+  if (!TEST_CHECK(existing_n > 0 && (size_t)existing_n < sizeof(existing))) {
+    goto cleanup;
   }
 
   // A umask other than the usual `022` is the case a hardcoded mode would discard. It also must not
   // be `077`, whose result is `mkstemp`'s own `0600` and so could not show the mode was applied.
   // Restore it before asserting, so a failure cannot leak the changed value into later tests.
-  const mode_t previous_umask = umask(027);
+  previous_umask = umask(027);
   TEST_CHECK(fs_write_file(created, "x", 1, NULL, 0) == 0);
   TEST_CHECK(fs_write_file(existing, "x", 1, NULL, 0) == 0);
   TEST_CHECK(chmod(existing, 0640) == 0);
   TEST_CHECK(fs_write_file(existing, "y", 1, NULL, 0) == 0);
   (void)umask(previous_umask);
 
-  struct stat st;
   TEST_CHECK(stat(created, &st) == 0 && (st.st_mode & 07777) == (mode_t)(0666 & ~027));
   TEST_CHECK(stat(existing, &st) == 0 && (st.st_mode & 07777) == 0640);
+
+cleanup:
   (void)unlink(created);
   (void)unlink(existing);
   TEST_CHECK(rmdir(root_dir) == 0);
@@ -265,18 +275,23 @@ static void test_write_file_follows_symbolic_link(void) {
     return;
   }
   (void)unlink(link_path);
-  TEST_ASSERT(symlink(target_path, link_path) == 0);
-
-  TEST_CHECK(fs_write_file(link_path, "after", strlen("after"), NULL, 0) == 0);
   struct stat link_st;
-  TEST_ASSERT(lstat(link_path, &link_st) == 0);
-  TEST_CHECK(S_ISLNK(link_st.st_mode));
   char* file_data = NULL;
   size_t file_len = 0;
+  if (!TEST_CHECK(symlink(target_path, link_path) == 0)) {
+    goto cleanup;
+  }
+
+  TEST_CHECK(fs_write_file(link_path, "after", strlen("after"), NULL, 0) == 0);
+  if (!TEST_CHECK(lstat(link_path, &link_st) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(S_ISLNK(link_st.st_mode));
   TEST_CHECK(fs_read_file(target_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   TEST_CHECK(file_data != NULL && strcmp(file_data, "after") == 0);
-  free(file_data);
 
+cleanup:
+  free(file_data);
   (void)unlink(link_path);
   (void)unlink(target_path);
 }
@@ -292,8 +307,13 @@ static void test_write_file_failure_preserves_existing_file(void) {
     return;
   }
 
+  int status = 0;
+  char* file_data = NULL;
+  size_t file_len = 0;
   const pid_t child = fork();
-  TEST_ASSERT(child >= 0);
+  if (!TEST_CHECK(child >= 0)) {
+    goto cleanup;
+  }
   if (child == 0) {
     const struct rlimit limit = {.rlim_cur = 1024, .rlim_max = 1024};
     (void)signal(SIGXFSZ, SIG_IGN);
@@ -305,20 +325,17 @@ static void test_write_file_failure_preserves_existing_file(void) {
         fs_write_file(file_path, replacement, sizeof(replacement), reason, sizeof(reason));
     _exit(write_rc == -1 ? 0 : 3);
   }
-  if (child < 0) {
-    (void)unlink(file_path);
-    return;
+  if (!TEST_CHECK(waitpid(child, &status, 0) == child)) {
+    goto cleanup;
   }
-  int status = 0;
-  TEST_ASSERT(waitpid(child, &status, 0) == child);
   TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
   // `original` is over `TEST_FILE_LEN_MAX`, so this read takes its own size as the limit.
-  char* file_data = NULL;
-  size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, sizeof(original), &file_data, &file_len, NULL, 0) == 0);
   TEST_CHECK(file_len == sizeof(original));
   TEST_CHECK(file_data != NULL && memcmp(file_data, original, sizeof(original)) == 0);
+
+cleanup:
   free(file_data);
   (void)unlink(file_path);
 }
@@ -339,51 +356,44 @@ static void test_write_file_rejects_missing_or_file_parent_and_dir_target(void) 
   char missing_parent_path[PATH_MAX];
   const int missing_n =
       snprintf(missing_parent_path, sizeof(missing_parent_path), "%s/missing/x.c", root_dir);
-  TEST_ASSERT(missing_n > 0 && (size_t)missing_n < sizeof(missing_parent_path));
-  if (missing_n <= 0 || (size_t)missing_n >= sizeof(missing_parent_path)) {
-    (void)rmdir(root_dir);
-    return;
-  }
-
-  char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_write_file(missing_parent_path, "x", 1, reason, sizeof(reason)) == -1);
-  char expected[FS_REASON_SIZE];
-  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
-
   char blocking_file[PATH_MAX];
   const int blocking_n = snprintf(blocking_file, sizeof(blocking_file), "%s/plain.c", root_dir);
-  TEST_ASSERT(blocking_n > 0 && (size_t)blocking_n < sizeof(blocking_file));
-  if (blocking_n <= 0 || (size_t)blocking_n >= sizeof(blocking_file)) {
-    (void)rmdir(root_dir);
-    return;
-  }
   char through_file[PATH_MAX];
   const int through_n = snprintf(through_file, sizeof(through_file), "%s/x.c", blocking_file);
-  TEST_ASSERT(through_n > 0 && (size_t)through_n < sizeof(through_file));
-  if (through_n <= 0 || (size_t)through_n >= sizeof(through_file)) {
-    (void)rmdir(root_dir);
-    return;
-  }
-  TEST_CHECK(fs_write_file(blocking_file, "x", 1, NULL, 0) == 0);
-
-  reason[0] = '\0';
-  TEST_CHECK(fs_write_file(through_file, "x", 1, reason, sizeof(reason)) == -1);
-  (void)unlink(blocking_file);
-  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOTDIR)) == 0);
-
   char dir_target[PATH_MAX];
   const int target_n = snprintf(dir_target, sizeof(dir_target), "%s/target", root_dir);
-  TEST_ASSERT(target_n > 0 && (size_t)target_n < sizeof(dir_target));
-  if (target_n <= 0 || (size_t)target_n >= sizeof(dir_target)) {
-    (void)rmdir(root_dir);
-    return;
+  char reason[FS_REASON_SIZE] = "";
+  char expected[FS_REASON_SIZE];
+  if (!TEST_CHECK(missing_n > 0 && (size_t)missing_n < sizeof(missing_parent_path))) {
+    goto cleanup;
   }
-  TEST_ASSERT(mkdir(dir_target, 0700) == 0);
+  if (!TEST_CHECK(blocking_n > 0 && (size_t)blocking_n < sizeof(blocking_file))) {
+    goto cleanup;
+  }
+  if (!TEST_CHECK(through_n > 0 && (size_t)through_n < sizeof(through_file))) {
+    goto cleanup;
+  }
+  if (!TEST_CHECK(target_n > 0 && (size_t)target_n < sizeof(dir_target))) {
+    goto cleanup;
+  }
 
+  TEST_CHECK(fs_write_file(missing_parent_path, "x", 1, reason, sizeof(reason)) == -1);
+  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOENT)) == 0);
+
+  TEST_CHECK(fs_write_file(blocking_file, "x", 1, NULL, 0) == 0);
+  reason[0] = '\0';
+  TEST_CHECK(fs_write_file(through_file, "x", 1, reason, sizeof(reason)) == -1);
+  TEST_CHECK(strcmp(reason, expected_errno_reason(expected, ENOTDIR)) == 0);
+
+  if (!TEST_CHECK(mkdir(dir_target, 0700) == 0)) {
+    goto cleanup;
+  }
   reason[0] = '\0';
   TEST_CHECK(fs_write_file(dir_target, "x", 1, reason, sizeof(reason)) == -1);
   TEST_CHECK(strcmp(reason, expected_errno_reason(expected, EISDIR)) == 0);
 
+cleanup:
+  (void)unlink(blocking_file);
   (void)rmdir(dir_target);
   (void)rmdir(root_dir);
 }
