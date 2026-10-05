@@ -1,6 +1,6 @@
 # Architecture
 
-`cwrap` is a small C17 CLI that rewraps C comments. It reads source files or standard input, refills wrappable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
+`cwrap` is a small C17 C comment formatter. It reads source files or standard input, refills wrappable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
 
 ## Layout
 
@@ -8,7 +8,7 @@
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
 - [src/runtime/](src/runtime/): Filesystem and stream services that interact with the host.
 - [src/core/](src/core/): Small reusable primitives for diagnostics, parsing, and ASCII classification.
-- [tests/](tests/): Golden and idempotence test suites and the shared unit-test support library ([tests/test_support.h](tests/test_support.h)). Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence check also rewraps these files and every first-party source file at several widths.
+- [tests/](tests/): Golden and idempotence test suites and the shared unit-test support library ([tests/test_support.h](tests/test_support.h)). Each C file under [tests/fixtures/](tests/fixtures/) has a matching expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files and every first-party source file at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): Project entry point and supported build configurations.
 - [cmake/](cmake/): Build profiles, quality tools, packaging, the golden and idempotence test drivers, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
 - [vendor/](vendor/): Bundled dependencies (`copt`, `sharedstuff`, `acutest`).
@@ -57,7 +57,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 - [doxygen](src/domain/doxygen.h): Parses a Doxygen command at the start of a payload and aligns `@param` and `@retval` descriptions.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer and splices rewritten comments between unchanged source ranges.
 
-### Application (`src/app`)
+### App (`src/app`)
 
 - [wrap_input](src/app/wrap_input.h): Coordinates file or stream input, source rewriting, and the selected output mode.
 
