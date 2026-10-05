@@ -13,6 +13,21 @@
 #include "core/parse.h"
 
 /**
+ * Largest wrapping column `--width` accepts.
+ *
+ * The ceiling is not a safety bound. `fill` compares columns without overflow at any `size_t`
+ * width, and no allocation scales with it. It exists because past the display width of the longest
+ * paragraph every width gives the same output, each paragraph joined onto one line, so a larger
+ * value cannot ask for anything a smaller one does not already do.
+ *
+ * 10000 is deliberately unreachable by legitimate use rather than tuned to an optimum. It sits an
+ * order of magnitude above the widest line a terminal or editor displays, under a thousand columns
+ * even on a large monitor at a small font, so no real `--width` value meets it. A pathological
+ * value fails with a diagnostic naming the limit rather than being accepted silently.
+ */
+enum { WRAP_COLUMN_MAX = 10000 };
+
+/**
  * @brief Reports whether a parse error has already been recorded.
  *
  * @param options Options whose `error_message` is inspected. Must not be `NULL`.

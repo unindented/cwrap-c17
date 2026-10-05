@@ -7,9 +7,6 @@
 
 #include "core/error.h"
 
-/** Largest wrapping column `--width` accepts. */
-enum { WRAP_COLUMN_MAX = 10000 };
-
 /** Wrapping column used when `--width` is omitted. */
 enum { WRAP_COLUMN_DEFAULT = 100 };
 

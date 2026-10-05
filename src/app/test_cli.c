@@ -318,30 +318,20 @@ static void test_negative_width_rejected(void) {
 }
 
 // A wrapping column above the accepted ceiling is rejected. The value at the ceiling is accepted,
-// so the boundary itself is pinned rather than just the rejection. Deriving the expected boundary
-// from `WRAP_COLUMN_MAX` keeps the test tied to the limit.
+// so the boundary itself is pinned rather than just the rejection. `WRAP_COLUMN_MAX` is file-local
+// to `cli.c`, so the limit is spelled here as a literal. Changing it must update these two cases
+// and the expected message below.
 static void test_oversize_width_rejected(void) {
-  char too_large[32];
-  const int too_large_len =
-      snprintf(too_large, sizeof(too_large), "%zu", (size_t)WRAP_COLUMN_MAX + 1);
-  TEST_ASSERT(too_large_len > 0 && (size_t)too_large_len < sizeof(too_large));
-  char* argv[] = {"cwrap", "--width", too_large, "a.c", NULL};
+  char* argv[] = {"cwrap", "--width", "10001", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  char expected[ERROR_MESSAGE_SIZE];
-  const int expected_len = snprintf(expected, sizeof(expected),
-                                    "option '--width' exceeds max wrapping column (%zu) at %zu",
-                                    (size_t)WRAP_COLUMN_MAX, (size_t)WRAP_COLUMN_MAX + 1);
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(options.error_message, expected) == 0);
+  TEST_CHECK(strcmp(options.error_message,
+                    "option '--width' exceeds max wrapping column (10000) at 10001") == 0);
 
-  char at_limit[32];
-  const int at_limit_len = snprintf(at_limit, sizeof(at_limit), "%zu", (size_t)WRAP_COLUMN_MAX);
-  TEST_ASSERT(at_limit_len > 0 && (size_t)at_limit_len < sizeof(at_limit));
-  char* accepted_argv[] = {"cwrap", "--width", at_limit, "a.c", NULL};
-  options = parse(accepted_argv);
+  char* at_limit[] = {"cwrap", "--width", "10000", "a.c", NULL};
+  options = parse(at_limit);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
-  TEST_CHECK(options.width == WRAP_COLUMN_MAX);
+  TEST_CHECK(options.width == 10000);
   TEST_CHECK(options.error_message[0] == '\0');
 }
 
