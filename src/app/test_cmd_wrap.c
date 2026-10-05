@@ -100,18 +100,19 @@ static void test_reports_check_change(void) {
   TEST_CHECK(stdout_out[0] == '\0');
   char expected[ERROR_MESSAGE_SIZE];
   const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+  TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
 
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, wrap_fixture_source) == 0);
     free(file_data);
   }
-  (void)unlink(file_path);
 }
 
 // In-place mode overwrites a changed source, writes nothing to either stream, and reports success.
@@ -139,12 +140,13 @@ static void test_rewrites_in_place(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, "// one two\n") == 0);
     free(file_data);
   }
-  (void)unlink(file_path);
 }
 
 // A missing input reports the read failure to `stderr`, writes nothing to `stdout`, and returns the
@@ -205,6 +207,8 @@ static void test_reports_unwritable_stdout(void) {
     }
     has_plumbing_failed = capture_end(&stdout_capture, NULL, 0) != 0 || has_plumbing_failed;
   }
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
 
   TEST_CHECK(!has_plumbing_failed);
   TEST_CHECK(rc == EXIT_CODE_FAILURE);
@@ -217,8 +221,6 @@ static void test_reports_unwritable_stdout(void) {
                error_system_message(reason, sizeof(reason), EBADF));
   TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(stderr_out, expected) == 0);
-
-  (void)unlink(file_path);
 }
 
 TEST_LIST = {

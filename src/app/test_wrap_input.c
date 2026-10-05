@@ -26,11 +26,12 @@ static void test_file_check_ok_result(void) {
 
   const enum WrapInputResult result =
       wrap_input_process_file(file_path, 40, false, true, &error_buffer);
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
 
   TEST_CHECK(result == WRAP_INPUT_RESULT_OK);
   TEST_CHECK(error_buffer.len == 0);
   string_buffer_free(&error_buffer);
-  (void)unlink(file_path);
 }
 
 // Stable stream input succeeds silently in check mode.
@@ -66,6 +67,8 @@ static void test_file_check_change_result(void) {
 
   const enum WrapInputResult result =
       wrap_input_process_file(file_path, 40, false, true, &error_buffer);
+  // The file is removed before any assertion, so a failed one cannot leave it behind.
+  (void)unlink(file_path);
 
   char expected[ERROR_MESSAGE_SIZE];
   const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'", file_path);
@@ -74,7 +77,6 @@ static void test_file_check_change_result(void) {
   TEST_CHECK(error_buffer.data != NULL && strcmp(error_buffer.data, expected) == 0);
 
   string_buffer_free(&error_buffer);
-  (void)unlink(file_path);
 }
 
 // Stream check mode uses the supplied display name when it reports a change.
