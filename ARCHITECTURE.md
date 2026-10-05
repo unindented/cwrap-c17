@@ -1,6 +1,6 @@
 # Architecture
 
-`cwrap` is a small C17 CLI that rewraps C comments. It reads source files or standard input, refills wrapable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
+`cwrap` is a small C17 CLI that rewraps C comments. It reads source files or standard input, refills wrappable comment blocks, and writes the result to `stdout`, in place, or as a `--check` report. This document describes the code structure. See [README.md](README.md) for usage and wrapping behavior.
 
 ## Layout
 

@@ -37,7 +37,7 @@ struct FillParagraph {
 };
 
 /**
- * @brief Reports whether `kind` may join a wrapable paragraph.
+ * @brief Reports whether `kind` may join a wrappable paragraph.
  *
  * @param kind Line kind.
  * @return `true` for prose, which includes the continuation lines of a tag, or `false` otherwise.

@@ -21,7 +21,7 @@ enum CommentShape {
   COMMENT_SHAPE_HANGING,
 };
 
-/** One wrapable comment region. Trailing comments are not grouped. */
+/** One wrappable comment region. Trailing comments are not grouped. */
 struct CommentBlock {
   /** Decoration that governs prefix and closer placement. */
   enum CommentShape shape;
@@ -50,7 +50,7 @@ struct CommentBlock {
   bool is_doxygen;
 };
 
-/** Arena-owned list of wrapable comment blocks in source order. */
+/** Arena-owned list of wrappable comment blocks in source order. */
 struct CommentBlockList {
   /** Block array, or `NULL` when `count` is 0. */
   struct CommentBlock* items;
@@ -108,7 +108,7 @@ struct BodyLineList {
 };
 
 /**
- * @brief Groups wrapable comment spans into blocks and classifies each block's decoration.
+ * @brief Groups wrappable comment spans into blocks and classifies each block's decoration.
  *
  * Consecutive same-indent line comments with the same marker (`//`, `///`, or `//!`) and only a
  * newline and the indent's spaces or tabs between them become one line block, at the left margin or

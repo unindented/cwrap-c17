@@ -7,7 +7,7 @@ struct Arena;
 struct StringBuffer;
 
 /**
- * @brief Rewrites wrapable comments in `source` into `buffer`, leaving code unchanged.
+ * @brief Rewrites wrappable comments in `source` into `buffer`, leaving code unchanged.
  *
  * Trailing comments after code are copied as-is. Line-comment runs and slash-star blocks are
  * refilled to `width` using STYLE.md atoms, Doxygen alignment, and the block's closer convention.

@@ -10,7 +10,7 @@
 #include "shared/string_buffer.h"
 
 /**
- * @brief Groups source text into wrapable comment blocks.
+ * @brief Groups source text into wrappable comment blocks.
  *
  * @param arena  Arena that owns the returned list storage.
  * @param source Terminated source text to group.
@@ -29,7 +29,7 @@ static struct CommentBlockList group(struct Arena* arena, const char* source) {
  * @brief Groups `source` and extracts the body lines of its only block.
  *
  * @param arena  Arena that owns the grouped blocks and extracted lines.
- * @param source Terminated source text holding one wrapable block.
+ * @param source Terminated source text holding one wrappable block.
  * @return The extracted body-line list.
  */
 static struct BodyLineList extract(struct Arena* arena, const char* source) {
