@@ -401,10 +401,10 @@ static void test_leaves_hanging_indented_sample(void) {
   const char* source =
       "/* line 3:\n"
       "\n"
-      "     1  +++\n"
-      "     2  title = \"Title\"\n"
-      "     3  date = bad\n"
-      "     4  +++\n"
+      "     1  int main(void) {\n"
+      "     2    int x = 1;\n"
+      "     3    return x;\n"
+      "     4  }\n"
       " */\n";
   char* out = rewrite(source, 100);
   TEST_ASSERT(out != NULL);
@@ -414,10 +414,10 @@ static void test_leaves_hanging_indented_sample(void) {
   const char* expected =
       "/* line 3:\n"
       "\n"
-      "     1  +++\n"
-      "     2  title = \"Title\"\n"
-      "     3  date = bad\n"
-      "     4  +++ */\n";
+      "     1  int main(void) {\n"
+      "     2    int x = 1;\n"
+      "     3    return x;\n"
+      "     4  } */\n";
   TEST_CHECK(strcmp(out, expected) == 0);
   free(out);
 }

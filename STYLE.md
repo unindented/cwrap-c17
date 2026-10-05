@@ -146,7 +146,7 @@ This guide is an amalgamation of ideas and conventions from the following resour
 ## Tests
 
 - Assert the exact expected value whenever the output is deterministic. Reserve a substring check for cases where an exact match would be brittle rather than strict: long prose such as help text, output from a vendored library already covered by the golden test suite, or a string embedding a temporary directory.
-- When a substring check is the right tool, make the needle the complete claim. A needle that is one word of a diagnostic, such as `strstr(err, "title")`, passes for every message mentioning that word, including the message for a different failure.
+- When a substring check is the right tool, make the needle the complete claim. A needle that is one word of a diagnostic, such as `strstr(err, "width")`, passes for every message mentioning that word, including the message for a different failure.
 - Assert the diagnostic of every failure, not just the non-zero return. A bare `!= 0` cannot tell the failure under test from an unrelated one, and keeps passing when a later change moves the failure to another phase.
 - Keep the distinctions required by [Errors and diagnostics](#errors-and-diagnostics) visible to the tests: a missing key and a wrong-typed key must fail different assertions, not the same loose one.
 - Derive an expected limit from its named constant rather than repeating the literal. Spell out a literal only when the constant is file-local, and note that changing it must update the test.

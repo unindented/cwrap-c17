@@ -98,7 +98,7 @@ static void test_split_does_not_glue_be_able(void) {
 static void test_split_attaches_possessive_period_and_hyphen(void) {
   struct Arena arena;
   arena_init(&arena);
-  const char* possessive = "`mustache.c`'s.";
+  const char* possessive = "`comment.c`'s.";
   struct AtomList atoms;
   TEST_CHECK(atom_split(possessive, strlen(possessive), &arena, &atoms) == 0);
   TEST_CHECK(atoms.count == 1);

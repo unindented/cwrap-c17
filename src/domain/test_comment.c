@@ -215,16 +215,16 @@ static void test_extract_drops_hanging_closer_line(void) {
 static void test_extract_keeps_hanging_sample_indent(void) {
   struct Arena arena;
   arena_init(&arena);
-  const char* source = "/* line 3:\n\n     1  +++\n     2  title\n */\n";
+  const char* source = "/* line 3:\n\n     1  int x;\n     2  x = 0;\n */\n";
   struct CommentBlockList blocks = group(&arena, source);
   struct BodyLineList lines;
   char err[64];
   TEST_CHECK(comment_extract_body(source, &blocks.items[0], &arena, &lines, err, sizeof(err)) == 0);
   TEST_CHECK(lines.count == 4);
   TEST_CHECK(lines.items[2].kind == BODY_LINE_CODE);
-  TEST_CHECK(strcmp(lines.items[2].text, "  1  +++") == 0);
+  TEST_CHECK(strcmp(lines.items[2].text, "  1  int x;") == 0);
   TEST_CHECK(lines.items[3].kind == BODY_LINE_CODE);
-  TEST_CHECK(strcmp(lines.items[3].text, "  2  title") == 0);
+  TEST_CHECK(strcmp(lines.items[3].text, "  2  x = 0;") == 0);
   arena_free(&arena);
 }
 
