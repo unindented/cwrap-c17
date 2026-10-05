@@ -39,20 +39,18 @@ static int fs_read_file_bytes(char* data,
                               size_t reason_len) __attribute__((nonnull(1, 3)));
 
 /**
- * @brief Writes all of `data` to `fp` without closing it.
+ * @brief Writes every byte to an open descriptor, retrying interrupted and short writes.
  *
- * @param fp         Destination stream. Must not be `NULL`.
- * @param data       Source bytes. Must hold at least `data_len` bytes. Must not be `NULL`.
+ * @param fd         Descriptor open for writing.
+ * @param data       Bytes to write. Must hold at least `data_len` bytes. Must not be `NULL`.
  * @param data_len   Number of bytes to write.
  * @param reason     Receives the failure reason. May be `NULL` only when `reason_len` is 0.
  * @param reason_len Size of `reason` in bytes.
- * @return `0` on success, or `-1` on a write failure.
+ * @return `0` once all `data_len` bytes are written, or `-1` on a write error or a write that makes
+ *         no progress.
  */
-static int fs_write_file_bytes(FILE* fp,
-                               const char* data,
-                               size_t data_len,
-                               char* reason,
-                               size_t reason_len) __attribute__((nonnull(1, 2)));
+static int write_all(int fd, const void* data, size_t data_len, char* reason, size_t reason_len)
+    __attribute__((nonnull(2)));
 
 /**
  * @brief Returns the permission bits a newly created file gets from the process umask.
@@ -196,7 +194,6 @@ int fs_write_file(const char* file_path,
   const mode_t mode = has_existing_file ? st.st_mode & 07777 : fs_write_file_created_mode();
 
   int fd = -1;
-  FILE* fp = NULL;
   int rc = -1;
   bool is_renamed = false;
 
@@ -205,36 +202,26 @@ int fs_write_file(const char* file_path,
     (void)fs_reason_errno(reason, reason_len, errno);
     goto cleanup;
   }
-  fp = fdopen(fd, "wb");
-  if (fp == NULL) {
-    (void)fs_reason_errno(reason, reason_len, errno);
-    goto cleanup;
-  }
-  fd = -1;
 
-  rc = fs_write_file_bytes(fp, data, data_len, reason, reason_len);
-  if (rc == 0 && fchmod(fileno(fp), mode) != 0) {
+  rc = write_all(fd, data, data_len, reason, reason_len);
+  if (rc == 0 && fchmod(fd, mode) != 0) {
     (void)fs_reason_errno(reason, reason_len, errno);
     rc = -1;
   }
-  // Flush and `fsync` before the `rename`, not after. Otherwise the new directory entry can reach
-  // the disk while the bytes behind it are still in the page cache, and a power loss leaves the
-  // user's source file empty or truncated in place of the previous complete one.
-  if (rc == 0 && fflush(fp) != 0) {
+  // `fsync` before the `rename`, not after. Otherwise the new directory entry can reach the disk
+  // while the bytes behind it are still in the page cache, and a power loss leaves the user's
+  // source file empty or truncated in place of the previous complete one.
+  if (rc == 0 && fsync(fd) != 0) {
     (void)fs_reason_errno(reason, reason_len, errno);
     rc = -1;
   }
-  if (rc == 0 && fsync(fileno(fp)) != 0) {
-    (void)fs_reason_errno(reason, reason_len, errno);
-    rc = -1;
-  }
-  if (fclose(fp) != 0) {
+  if (close(fd) != 0) {
     if (rc == 0) {
       (void)fs_reason_errno(reason, reason_len, errno);
     }
     rc = -1;
   }
-  fp = NULL;
+  fd = -1;
   if (rc != 0) {
     goto cleanup;
   }
@@ -247,9 +234,6 @@ int fs_write_file(const char* file_path,
   rc = 0;
 
 cleanup:
-  if (fp != NULL) {
-    (void)fclose(fp);
-  }
   if (fd >= 0) {
     (void)close(fd);
   }
@@ -307,25 +291,22 @@ static int fs_read_file_bytes(char* data,
   return rc;
 }
 
-static int fs_write_file_bytes(FILE* fp,
-                               const char* data,
-                               size_t data_len,
-                               char* reason,
-                               size_t reason_len) {
-  // Reset `errno` so a value left by an earlier call cannot pass for the cause of this one. ISO C
-  // does not require `fwrite` to set it, so a stream error that left it at 0 is reported as `EIO`.
-  errno = 0;
-  const size_t written = fwrite(data, 1, data_len, fp);
-  // Capture `errno` before calling `ferror`, which is permitted to modify it even when it succeeds.
-  // Reading it afterwards could name a cause the write never had.
-  const int write_errno = errno;
-  if (written == data_len) {
-    return 0;
+static int write_all(int fd, const void* data, size_t data_len, char* reason, size_t reason_len) {
+  const unsigned char* bytes = data;
+  size_t offset = 0;
+  while (offset < data_len) {
+    const ssize_t nwritten = write(fd, bytes + offset, data_len - offset);
+    if (nwritten > 0) {
+      offset += (size_t)nwritten;
+    } else if (nwritten < 0 && errno == EINTR) {
+      continue;
+    } else if (nwritten < 0) {
+      return fs_reason_errno(reason, reason_len, errno);
+    } else {
+      return error_report(reason, reason_len, "write made no progress");
+    }
   }
-  if (ferror(fp) != 0) {
-    return fs_reason_errno(reason, reason_len, write_errno == 0 ? EIO : write_errno);
-  }
-  return error_report(reason, reason_len, "wrote only %zu of %zu bytes", written, data_len);
+  return 0;
 }
 
 static mode_t fs_write_file_created_mode(void) {
