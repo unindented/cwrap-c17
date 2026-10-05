@@ -24,13 +24,17 @@ enum { FS_REASON_SIZE = 256 };
  * reports a partial copy as a successful read.
  *
  * It opens the path without blocking and checks the opened descriptor, so the file inspected is the
- * file read and a FIFO is rejected rather than waited on.
+ * file read and a FIFO is rejected rather than waited on. It rejects a file larger than
+ * `data_len_max` from that `fstat` size, before any read or allocation, so an oversize input never
+ * becomes resident. Each caller passes the limit for the kind of file it reads.
  *
  * It also rejects a file containing an embedded `NUL` byte. This is the boundary that establishes
  * the codebase's text invariant. Every owned string is a `NUL`-free C string, so downstream payload
  * helpers can use terminated-string operations without truncating the source.
  *
  * @param file_path    Path of the file to read. Must not be `NULL`.
+ * @param data_len_max Largest accepted file size in bytes, excluding the terminator this adds. Must
+ *                     be less than `SIZE_MAX`, which leaves room for the terminator.
  * @param data_out     Receives the malloc'd buffer holding the file bytes plus a terminator. Must
  *                     not be `NULL`.
  * @param data_len_out Receives the number of bytes read, excluding the terminator. Must not be
@@ -39,15 +43,16 @@ enum { FS_REASON_SIZE = 256 };
  *                     from the system ones. May be `NULL` only when `reason_len` is 0. Untouched on
  *                     success.
  * @param reason_len   Size of `reason` in bytes.
- * @return `0` on success, or `-1` when the file is missing, not regular, too large, changed size
- *         mid-read or contains an embedded `NUL`, and on an open, read, allocation or close
- *         failure.
+ * @return `0` on success, or `-1` when the file is missing, not regular, larger than
+ *         `data_len_max`, changed size mid-read or contains an embedded `NUL`, and on an open,
+ *         read, allocation or close failure.
  */
 int fs_read_file(const char* file_path,
+                 size_t data_len_max,
                  char** data_out,
                  size_t* data_len_out,
                  char* reason,
-                 size_t reason_len) __attribute__((nonnull(1, 2, 3)));
+                 size_t reason_len) __attribute__((nonnull(1, 3, 4)));
 
 /**
  * @brief Atomically writes `data_len` bytes to `file_path`.

@@ -17,6 +17,9 @@
 #include "runtime/fs.h"
 #include "test_support.h"
 
+/** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
+enum { TEST_FILE_LEN_MAX = 1024 };
+
 /**
  * Captured output of one `cli_dispatch` call. Both streams are sized for the whole usage text,
  * which is the longest thing any dispatch path writes.
@@ -105,7 +108,7 @@ static void test_wrap_command_receives_parsed_options(void) {
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
   (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);
@@ -134,7 +137,7 @@ static void test_wrap_command_receives_check_option(void) {
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   // Removed before any `TEST_ASSERT`, whose abort would otherwise leave the file behind.
   (void)unlink(file_path);
   TEST_ASSERT(file_data != NULL);

@@ -15,6 +15,9 @@
 #include "runtime/fs.h"
 #include "test_support.h"
 
+/** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
+enum { TEST_FILE_LEN_MAX = 1024 };
+
 /** Source the wrap-command tests start from, which rewraps to one line at width 40. */
 static const char wrap_fixture_source[] = "// one\n// two\n";
 
@@ -102,7 +105,7 @@ static void test_reports_check_change(void) {
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, wrap_fixture_source) == 0);
@@ -135,7 +138,7 @@ static void test_rewrites_in_place(void) {
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   TEST_ASSERT(file_data != NULL);
   if (file_data != NULL) {
     TEST_CHECK(strcmp(file_data, "// one two\n") == 0);

@@ -296,7 +296,7 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
   } else if (width > (size_t)WRAP_COLUMN_MAX) {
     // The message prints both values as parsed numbers rather than as the raw argument, because a
     // `size_t` is bounded at twenty digits and so cannot truncate the limit off the end. This
-    // matches `exceeds max readable size (...) at ...` in `fs.c`, the closest sibling.
+    // matches `exceeds max file size (...) at ...` in `fs.c`, the closest sibling.
     record_error(options, "option '--width' exceeds max wrapping column (%zu) at %zu",
                  (size_t)WRAP_COLUMN_MAX, width);
   } else {

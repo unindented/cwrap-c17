@@ -16,6 +16,9 @@
 #include "runtime/fs.h"
 #include "test_support.h"
 
+/** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
+enum { TEST_FILE_LEN_MAX = 1024 };
+
 /**
  * @brief Formats the system reason an `fs` action reports.
  *
@@ -47,9 +50,24 @@ static void test_read_file_accepts_empty(void) {
   }
   char* file_data = NULL;
   size_t file_len = 123;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   TEST_CHECK(file_len == 0);
   TEST_CHECK(file_data != NULL && file_data[0] == '\0');
+  free(file_data);
+  (void)unlink(file_path);
+}
+
+// A file exactly at `data_len_max` bytes reads in full. The limit is inclusive.
+static void test_read_file_accepts_file_at_limit(void) {
+  char file_path[] = "/tmp/cwrap-fs-read-limit.XXXXXX";
+  if (init_fixture_file(file_path, "four", strlen("four")) == NULL) {
+    return;
+  }
+  char* file_data = NULL;
+  size_t file_len = 0;
+  TEST_CHECK(fs_read_file(file_path, strlen("four"), &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(file_len == strlen("four"));
+  TEST_CHECK(file_data != NULL && strcmp(file_data, "four") == 0);
   free(file_data);
   (void)unlink(file_path);
 }
@@ -67,7 +85,7 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(missing_path, &file_data, &file_len, reason,
+  TEST_CHECK(fs_read_file(missing_path, TEST_FILE_LEN_MAX, &file_data, &file_len, reason,
                           sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
@@ -80,7 +98,7 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   file_len = 999;
   reason[0] = '\0';
   TEST_CHECK(
-      fs_read_file("/tmp", &file_data, &file_len, reason, sizeof(reason)) == -1);
+      fs_read_file("/tmp", TEST_FILE_LEN_MAX, &file_data, &file_len, reason, sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
@@ -100,7 +118,7 @@ static void test_read_file_rejects_fifo(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(fifo_path, &file_data, &file_len, reason,
+  TEST_CHECK(fs_read_file(fifo_path, TEST_FILE_LEN_MAX, &file_data, &file_len, reason,
                           sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
@@ -121,12 +139,34 @@ static void test_read_file_rejects_embedded_nul(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason,
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, reason,
                           sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   // The reason names the policy. No system error occurred and the file reads fine otherwise.
   TEST_CHECK(strcmp(reason, "contains an embedded NUL byte") == 0);
+  (void)unlink(file_path);
+}
+
+// A readable file over `data_len_max` is rejected from its `fstat` size, before anything is
+// allocated or read, naming the limit and the size and leaving the outputs untouched. The file is
+// sized with `truncate`, so its size is the only thing about it the check can see.
+static void test_read_file_rejects_oversize_before_reading(void) {
+  char file_path[] = "/tmp/cwrap-fs-read-oversize.XXXXXX";
+  if (init_fixture_file(file_path, "", 0) == NULL) {
+    return;
+  }
+  TEST_CHECK(truncate(file_path, (off_t)strlen("five") + 1) == 0);
+
+  char sentinel[] = "unchanged";
+  char* file_data = sentinel;
+  size_t file_len = 999;
+  char reason[FS_REASON_SIZE] = "";
+  TEST_CHECK(
+      fs_read_file(file_path, strlen("five"), &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(file_data == sentinel);
+  TEST_CHECK(file_len == 999);
+  TEST_CHECK(strcmp(reason, "exceeds max file size (4 bytes) at 5 bytes") == 0);
   (void)unlink(file_path);
 }
 
@@ -147,7 +187,7 @@ static void test_write_then_read_round_trips(void) {
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason,
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, reason,
                           sizeof(reason)) == 0);
   TEST_CHECK(file_len == strlen("root"));
   TEST_CHECK(file_data != NULL && strcmp(file_data, "root") == 0);
@@ -167,7 +207,7 @@ static void test_write_file_replaces_contents(void) {
 
   char* data = NULL;
   size_t data_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &data, &data_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &data, &data_len, NULL, 0) == 0);
   TEST_CHECK(data_len == sizeof(replacement));
   TEST_CHECK(data != NULL && memcmp(data, replacement, sizeof(replacement)) == 0);
   free(data);
@@ -234,7 +274,7 @@ static void test_write_file_follows_symbolic_link(void) {
   TEST_CHECK(S_ISLNK(link_st.st_mode));
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(target_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(target_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
   TEST_CHECK(file_data != NULL && strcmp(file_data, "after") == 0);
   free(file_data);
 
@@ -274,9 +314,10 @@ static void test_write_file_failure_preserves_existing_file(void) {
   TEST_ASSERT(waitpid(child, &status, 0) == child);
   TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
+  // `original` is over `TEST_FILE_LEN_MAX`, so this read takes its own size as the limit.
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
+  TEST_CHECK(fs_read_file(file_path, sizeof(original), &file_data, &file_len, NULL, 0) == 0);
   TEST_CHECK(file_len == sizeof(original));
   TEST_CHECK(file_data != NULL && memcmp(file_data, original, sizeof(original)) == 0);
   free(file_data);
@@ -327,9 +368,11 @@ static void test_write_file_rejects_missing_parent_and_dir_target(void) {
 
 TEST_LIST = {
     {"read file accepts empty", test_read_file_accepts_empty},
+    {"read file accepts file at limit", test_read_file_accepts_file_at_limit},
     {"read file rejects missing and non-regular", test_read_file_rejects_missing_and_non_regular},
     {"read file rejects fifo", test_read_file_rejects_fifo},
     {"read file rejects embedded nul", test_read_file_rejects_embedded_nul},
+    {"read file rejects oversize before reading", test_read_file_rejects_oversize_before_reading},
     {"write then read round trips", test_write_then_read_round_trips},
     {"write file replaces contents", test_write_file_replaces_contents},
     {"write file applies umask and keeps existing mode",

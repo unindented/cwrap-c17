@@ -63,7 +63,7 @@ No domain or runtime module writes a failure diagnostic directly to `stderr`. Ea
 
 ### Runtime (`src/runtime`)
 
-- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes `fsync` and close a sibling temporary file before renaming it over the destination, preserving an existing file on failure. An existing destination keeps its permission bits, and a new file gets `0666` minus the umask.
+- [fs](src/runtime/fs.h): Reads stable, regular, `NUL`-free files and atomically writes byte buffers. Reads return a terminated allocation plus its byte length and reject files that change size during the operation. Writes `fsync` and close a sibling temporary file before renaming it over the destination, preserving an existing file on failure. An existing destination keeps its permission bits, and a new file gets `0666` minus the umask. `fs_read_file` takes a size limit from each caller and checks it against the `fstat` size of the opened file before any read or allocation.
 - [stream](src/runtime/stream.h): Buffers a potentially non-seekable, `NUL`-free stream through EOF without closing it.
 
 ### Core (`src/core`)
@@ -80,6 +80,7 @@ Rewrapping is idempotent: a second pass over the output of a first must change n
 
 - **Ownership**: Arenas own the temporary allocations made while rewriting one source. File and stream reads return a separate buffer that the caller frees. A `StringBuffer` owns its growable allocation until it is freed or `string_buffer_steal` transfers that allocation to the caller.
 - **Text representation**: An input read produces a terminated, `NUL`-free buffer plus its byte length. The lexer and wrapping pipeline use borrowed slices into that buffer. The embedded-`NUL` check prevents silent truncation when the buffer is used as a C string.
+- **Input size limits**: Each `fs_read_file` caller passes a limit for the kind of file it reads. The read checks the limit before it allocates, so an oversize file is never loaded. `SOURCE_FILE_LEN_MAX` in `wrap_input` is 64 MiB for each source file. `stream_read_all` has no size to check before it reads standard input, so standard input has no size limit.
 - **Line endings**: Each comment block records whether its source uses LF or CRLF. Refilled lines use that same convention, while untouched source bytes pass through unchanged.
 - **Return values**: A producer returns a pointer or `NULL`. An action returns `0` or `-1`. A predicate returns `bool`. An operation with a third, non-error outcome returns an enum; `wrap_input` uses `WrapInputResult` to keep a check-mode change distinct from an operational error.
 - **Diagnostic buffers**: A fallible action can take a final `(char* err, size_t err_len)` pair. `error_report` fills this buffer and marks truncated text with `...`. Filesystem actions use a `(char* reason, size_t reason_len)` pair instead. This pair contains a reason fragment. The caller adds the operation and file information.

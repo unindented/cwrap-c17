@@ -79,6 +79,7 @@ static mode_t fs_write_file_created_mode(void);
 static int fs_reason_errno(char* reason, size_t reason_len, int error_number);
 
 int fs_read_file(const char* file_path,
+                 size_t data_len_max,
                  char** data_out,
                  size_t* data_len_out,
                  char* reason,
@@ -99,13 +100,15 @@ int fs_read_file(const char* file_path,
     // see that and would follow a path where these checks leave `rc` at 0.
     (void)error_report(reason, reason_len, "not a regular file");
     rc = -1;
-  } else if ((uintmax_t)st.st_size > (uintmax_t)SIZE_MAX - 1) {
-    // Reserve one byte for the terminator the allocation below adds, so `size + 1` cannot wrap to 0
-    // and hand back a buffer shorter than the read. Both sides widen to `uintmax_t` because the
-    // comparison only binds where `off_t` is wider than `size_t`, as on a 32-bit target. A negative
-    // size, which no regular file reports, would widen past the limit and fail here as well.
-    (void)error_report(reason, reason_len, "exceeds max readable size (%zu bytes) at %ju bytes",
-                       SIZE_MAX - 1, (uintmax_t)st.st_size);
+  } else if ((uintmax_t)st.st_size > (uintmax_t)data_len_max) {
+    // Check the limit against the `fstat` size, before anything is allocated or read, so an
+    // oversize file costs one `fstat` rather than its whole size in memory. A file that grows past
+    // the limit after this check is still caught, because `fs_read_file_bytes` rejects any byte
+    // beyond this size. `data_len_max` is below `SIZE_MAX` by contract, so passing this check also
+    // keeps `size + 1` from wrapping to 0. Both sides widen to `uintmax_t` because `off_t` and
+    // `size_t` may differ in width.
+    (void)error_report(reason, reason_len, "exceeds max file size (%zu bytes) at %ju bytes",
+                       data_len_max, (uintmax_t)st.st_size);
     rc = -1;
   }
   if (rc == 0 && fcntl(fd, F_SETFL, 0) != 0) {

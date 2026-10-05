@@ -88,7 +88,8 @@ enum WrapInputResult wrap_input_process_file(const char* file_path,
   char* source = NULL;
   size_t source_len = 0;
   char reason[FS_REASON_SIZE];
-  if (fs_read_file(file_path, &source, &source_len, reason, sizeof(reason)) != 0) {
+  if (fs_read_file(file_path, SOURCE_FILE_LEN_MAX, &source, &source_len, reason, sizeof(reason)) !=
+      0) {
     (void)append_error(error_buffer, "failed to read file: %s ('%s')", reason, file_path);
     return WRAP_INPUT_RESULT_ERROR;
   }

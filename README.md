@@ -80,6 +80,8 @@ These combinations are invalid:
 - Standard input with `--in-place`.
 - `--check` with `--in-place`.
 
+The tool rejects an input file over 64 MiB before it reads the file. The error message gives the limit and the file size. Standard input has no size limit.
+
 Run these commands for help:
 
 - `cwrap --version` (or `-V`): Print the version.
