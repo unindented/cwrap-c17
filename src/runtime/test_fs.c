@@ -44,7 +44,7 @@ static const char* expected_errno_reason(char buf[static FS_REASON_SIZE], int er
 
 // An empty file reads back as zero bytes with a valid terminator.
 static void test_read_file_accepts_empty(void) {
-  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  char file_path[] = "/tmp/cwrap-fs-empty.XXXXXX";
   if (init_fixture_file(file_path, "", 0) == NULL) {
     return;
   }
@@ -75,7 +75,7 @@ static void test_read_file_accepts_file_at_limit(void) {
 // `fs_read_file` rejects a missing path and a directory, leaving outputs untouched, and reports the
 // two as different reasons rather than one indistinguishable failure.
 static void test_read_file_rejects_missing_and_non_regular(void) {
-  char missing_path[] = "/tmp/cwrap-fs.XXXXXX";
+  char missing_path[] = "/tmp/cwrap-fs-read.XXXXXX";
   if (init_fixture_file(missing_path, "", 0) == NULL) {
     return;
   }
@@ -107,7 +107,7 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
 // A FIFO is rejected as not a regular file instead of blocking the open until a writer opens it,
 // leaving the outputs untouched.
 static void test_read_file_rejects_fifo(void) {
-  char fifo_path[] = "/tmp/cwrap-fs-fifo.XXXXXX";
+  char fifo_path[] = "/tmp/cwrap-fs-read-fifo.XXXXXX";
   if (init_fixture_file(fifo_path, "", 0) == NULL) {
     return;
   }
@@ -131,7 +131,7 @@ static void test_read_file_rejects_fifo(void) {
 // Accepting it would silently truncate wrapped output at the `NUL`.
 static void test_read_file_rejects_embedded_nul(void) {
   const char payload[] = {'a', '\0', 'b'};
-  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  char file_path[] = "/tmp/cwrap-fs-nul.XXXXXX";
   if (init_fixture_file(file_path, payload, sizeof(payload)) == NULL) {
     return;
   }
@@ -256,7 +256,7 @@ static void test_write_file_applies_umask_and_keeps_existing_mode(void) {
 
 // Atomic replacement follows a symbolic link and leaves the link itself in place.
 static void test_write_file_follows_symbolic_link(void) {
-  char target_path[] = "/tmp/cwrap-fs.XXXXXX";
+  char target_path[] = "/tmp/cwrap-fs-link-target.XXXXXX";
   if (init_fixture_file(target_path, "before", strlen("before")) == NULL) {
     return;
   }
@@ -288,7 +288,7 @@ static void test_write_file_failure_preserves_existing_file(void) {
   char replacement[2048];
   memset(original, 'a', sizeof(original));
   memset(replacement, 'b', sizeof(replacement));
-  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
+  char file_path[] = "/tmp/cwrap-fs-preserve.XXXXXX";
   if (init_fixture_file(file_path, original, sizeof(original)) == NULL) {
     return;
   }

@@ -22,11 +22,10 @@ static void test_is_digit_accepts_only_ascii_digits(void) {
 }
 
 // `ascii_is_alphanumeric` answers for `[0-9A-Za-z]` and nothing else, asserted at every edge of the
-// three ranges. Four callers depend on the exact set. `hex_run_len` uses it to end a byte run,
-// which is what stops `be able` from parsing as the run `be ab`. `has_alphanumeric_payload` and
-// `is_decoration_line` use it to decide a block or a payload line carries no letters or digits and
-// is therefore left unwrapped. `is_word_byte` uses it to decide a directive ends on a word
-// boundary. Widening it by one byte changes all four, silently.
+// three ranges. This predicate defines the byte-run end of `hex_run_len`, which stops `be able`
+// from parsing as the run `be ab`, the letter-or-digit test by which `has_alphanumeric_payload` and
+// `is_decoration_line` leave a block or payload line unwrapped, and the word boundary at which
+// `is_word_byte` ends a directive, so widening it by one byte silently changes all four.
 static void test_is_alnum_accepts_only_letters_and_digits(void) {
   TEST_CHECK(ascii_is_alphanumeric('0'));
   TEST_CHECK(ascii_is_alphanumeric('9'));
@@ -44,8 +43,8 @@ static void test_is_alnum_accepts_only_letters_and_digits(void) {
   TEST_CHECK(!ascii_is_alphanumeric('`'));
   TEST_CHECK(!ascii_is_alphanumeric('{'));
 
-  // The punctuation the path and identifier rules allow separately, which this predicate must not
-  // fold in itself, plus the ends of the byte range.
+  // The `_` that `is_word_byte` allows separately, which this predicate must not fold in itself,
+  // plus other punctuation and the ends of the byte range.
   TEST_CHECK(!ascii_is_alphanumeric('_'));
   TEST_CHECK(!ascii_is_alphanumeric('-'));
   TEST_CHECK(!ascii_is_alphanumeric('.'));
