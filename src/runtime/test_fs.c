@@ -48,12 +48,9 @@ static void test_read_file_accepts_empty(void) {
   char* file_data = NULL;
   size_t file_len = 123;
   TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(file_len == 0);
-    TEST_CHECK(strcmp(file_data, "") == 0);
-    free(file_data);
-  }
+  TEST_CHECK(file_len == 0);
+  TEST_CHECK(file_data != NULL && file_data[0] == '\0');
+  free(file_data);
   (void)unlink(file_path);
 }
 
@@ -70,7 +67,8 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(missing_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(fs_read_file(missing_path, &file_data, &file_len, reason,
+                          sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   char expected[FS_REASON_SIZE];
@@ -81,7 +79,8 @@ static void test_read_file_rejects_missing_and_non_regular(void) {
   file_data = sentinel;
   file_len = 999;
   reason[0] = '\0';
-  TEST_CHECK(fs_read_file("/tmp", &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(
+      fs_read_file("/tmp", &file_data, &file_len, reason, sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
@@ -101,7 +100,8 @@ static void test_read_file_rejects_fifo(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(fifo_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(fs_read_file(fifo_path, &file_data, &file_len, reason,
+                          sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   TEST_CHECK(strcmp(reason, "not a regular file") == 0);
@@ -121,7 +121,8 @@ static void test_read_file_rejects_embedded_nul(void) {
   char* file_data = sentinel;
   size_t file_len = 999;
   char reason[FS_REASON_SIZE] = "";
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason, sizeof(reason)) == -1);
+  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason,
+                          sizeof(reason)) == -1);
   TEST_CHECK(file_data == sentinel);
   TEST_CHECK(file_len == 999);
   // The reason names the policy. No system error occurred and the file reads fine otherwise.
@@ -132,60 +133,84 @@ static void test_read_file_rejects_embedded_nul(void) {
 // A written file reads back byte-for-byte, and a successful write and a successful read each leave
 // the reason untouched.
 static void test_write_then_read_round_trips(void) {
-  char file_path[] = "/tmp/cwrap-fs.XXXXXX";
-  if (init_fixture_file(file_path, "hello", 5) == NULL) {
+  char file_path[] = "/tmp/cwrap-fs-roundtrip.XXXXXX";
+  if (init_fixture_file(file_path, "", 0) == NULL) {
     return;
   }
+  // Unlinked so the write creates the file, rather than leaving a pre-existing one that already
+  // held the expected bytes.
+  (void)unlink(file_path);
+
   char reason[FS_REASON_SIZE] = "untouched";
-  TEST_ASSERT(chmod(file_path, 0640) == 0);
-  TEST_CHECK(fs_write_file(file_path, "hello", 5, reason, sizeof(reason)) == 0);
+  TEST_CHECK(fs_write_file(file_path, "root", strlen("root"), reason, sizeof(reason)) == 0);
   TEST_CHECK(strcmp(reason, "untouched") == 0);
-  struct stat st;
-  TEST_ASSERT(stat(file_path, &st) == 0);
-  TEST_CHECK((st.st_mode & 0777) == 0640);
 
   char* file_data = NULL;
   size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason, sizeof(reason)) == 0);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(file_len == 5);
-    TEST_CHECK(strcmp(file_data, "hello") == 0);
-    TEST_CHECK(strcmp(reason, "untouched") == 0);
-    free(file_data);
-  }
+  TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, reason,
+                          sizeof(reason)) == 0);
+  TEST_CHECK(file_len == strlen("root"));
+  TEST_CHECK(file_data != NULL && strcmp(file_data, "root") == 0);
+  TEST_CHECK(strcmp(reason, "untouched") == 0);
+  free(file_data);
   (void)unlink(file_path);
 }
 
-// A file that did not exist gets mode `0666` reduced by the umask rather than `mkstemp`'s `0600`,
-// and no temporary survives the write. `init_fixture_file` pre-creates its file, so this is the
-// only test whose write succeeds on the no-existing-file path.
-static void test_write_file_creates_file_with_umask_mode(void) {
+// A second write replaces a prior file's contents, including bytes past the new end.
+static void test_write_file_replaces_contents(void) {
+  char file_path[] = "/tmp/cwrap-fs-replace.XXXXXX";
+  if (init_fixture_file(file_path, "old contents", strlen("old contents")) == NULL) {
+    return;
+  }
+  static const char replacement[] = {'n', 'e', 'w'};
+  TEST_CHECK(fs_write_file(file_path, replacement, sizeof(replacement), NULL, 0) == 0);
+
+  char* data = NULL;
+  size_t data_len = 0;
+  TEST_CHECK(fs_read_file(file_path, &data, &data_len, NULL, 0) == 0);
+  TEST_CHECK(data_len == sizeof(replacement));
+  TEST_CHECK(data != NULL && memcmp(data, replacement, sizeof(replacement)) == 0);
+  free(data);
+  (void)unlink(file_path);
+}
+
+// `fs_write_file` creates a new file with `0666` reduced by the process umask rather than
+// `mkstemp`'s `0600`, and replacing an existing file keeps that file's mode. No temporary survives
+// either write, which the final `rmdir` of the fixture directory checks.
+static void test_write_file_applies_umask_and_keeps_existing_mode(void) {
   char root_dir_template[] = "/tmp/cwrap-fs-mode.XXXXXX";
   const char* root_dir = mkdtemp(root_dir_template);
   TEST_ASSERT(root_dir != NULL);
   if (root_dir == NULL) {
     return;
   }
-  char file_path[PATH_MAX];
-  const int path_n = snprintf(file_path, sizeof(file_path), "%s/new.c", root_dir);
-  TEST_ASSERT(path_n > 0 && (size_t)path_n < sizeof(file_path));
-  if (path_n <= 0 || (size_t)path_n >= sizeof(file_path)) {
+  char created[PATH_MAX];
+  const int created_n = snprintf(created, sizeof(created), "%s/created.c", root_dir);
+  char existing[PATH_MAX];
+  const int existing_n = snprintf(existing, sizeof(existing), "%s/existing.c", root_dir);
+  TEST_ASSERT(created_n > 0 && (size_t)created_n < sizeof(created));
+  TEST_ASSERT(existing_n > 0 && (size_t)existing_n < sizeof(existing));
+  if (created_n <= 0 || (size_t)created_n >= sizeof(created) || existing_n <= 0 ||
+      (size_t)existing_n >= sizeof(existing)) {
     (void)rmdir(root_dir);
     return;
   }
 
-  // A umask other than the usual `022` is the case a hardcoded mode would discard. Restore it
-  // before asserting, so a failure cannot leak the changed value into later tests.
+  // A umask other than the usual `022` is the case a hardcoded mode would discard. It also must not
+  // be `077`, whose result is `mkstemp`'s own `0600` and so could not show the mode was applied.
+  // Restore it before asserting, so a failure cannot leak the changed value into later tests.
   const mode_t previous_umask = umask(027);
-  const int write_rc = fs_write_file(file_path, "x", 1, NULL, 0);
+  TEST_CHECK(fs_write_file(created, "x", 1, NULL, 0) == 0);
+  TEST_CHECK(fs_write_file(existing, "x", 1, NULL, 0) == 0);
+  TEST_CHECK(chmod(existing, 0640) == 0);
+  TEST_CHECK(fs_write_file(existing, "y", 1, NULL, 0) == 0);
   (void)umask(previous_umask);
 
-  TEST_CHECK(write_rc == 0);
   struct stat st;
-  TEST_ASSERT(stat(file_path, &st) == 0);
-  TEST_CHECK((st.st_mode & 07777) == (0666 & ~027));
-  (void)unlink(file_path);
+  TEST_CHECK(stat(created, &st) == 0 && (st.st_mode & 07777) == (mode_t)(0666 & ~027));
+  TEST_CHECK(stat(existing, &st) == 0 && (st.st_mode & 07777) == 0640);
+  (void)unlink(created);
+  (void)unlink(existing);
   TEST_CHECK(rmdir(root_dir) == 0);
 }
 
@@ -210,11 +235,8 @@ static void test_write_file_follows_symbolic_link(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(target_path, &file_data, &file_len, NULL, 0) == 0);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(strcmp(file_data, "after") == 0);
-    free(file_data);
-  }
+  TEST_CHECK(file_data != NULL && strcmp(file_data, "after") == 0);
+  free(file_data);
 
   (void)unlink(link_path);
   (void)unlink(target_path);
@@ -255,12 +277,9 @@ static void test_write_file_failure_preserves_existing_file(void) {
   char* file_data = NULL;
   size_t file_len = 0;
   TEST_CHECK(fs_read_file(file_path, &file_data, &file_len, NULL, 0) == 0);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(file_len == sizeof(original));
-    TEST_CHECK(memcmp(file_data, original, sizeof(original)) == 0);
-    free(file_data);
-  }
+  TEST_CHECK(file_len == sizeof(original));
+  TEST_CHECK(file_data != NULL && memcmp(file_data, original, sizeof(original)) == 0);
+  free(file_data);
   (void)unlink(file_path);
 }
 
@@ -312,7 +331,9 @@ TEST_LIST = {
     {"read file rejects fifo", test_read_file_rejects_fifo},
     {"read file rejects embedded nul", test_read_file_rejects_embedded_nul},
     {"write then read round trips", test_write_then_read_round_trips},
-    {"write file creates file with umask mode", test_write_file_creates_file_with_umask_mode},
+    {"write file replaces contents", test_write_file_replaces_contents},
+    {"write file applies umask and keeps existing mode",
+     test_write_file_applies_umask_and_keeps_existing_mode},
     {"write file follows symbolic link", test_write_file_follows_symbolic_link},
     {"write file failure preserves existing file", test_write_file_failure_preserves_existing_file},
     {"write file rejects missing parent and dir target",
