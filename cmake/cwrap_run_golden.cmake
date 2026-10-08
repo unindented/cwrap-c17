@@ -1,4 +1,6 @@
-# This script rewraps every fixture. It compares each result with the expected output.
+# This script rewraps every fixture. It compares each result with the expected output. The release
+# workflow runs it against a packaged binary, with `CWRAP_EMULATOR` naming a launcher such as
+# `qemu-aarch64` when the binary targets another architecture.
 
 foreach(required IN ITEMS CWRAP_EXECUTABLE CWRAP_FIXTURE_DIR CWRAP_EXPECTED_DIR CWRAP_SCRATCH_DIR)
   if(NOT DEFINED ${required})
@@ -37,7 +39,7 @@ endif()
 foreach(file IN LISTS fixture_files)
   set(actual_file "${CWRAP_SCRATCH_DIR}/${file}")
   execute_process(
-    COMMAND "${CWRAP_EXECUTABLE}" -w 40 "${CWRAP_FIXTURE_DIR}/${file}"
+    COMMAND ${CWRAP_EMULATOR} "${CWRAP_EXECUTABLE}" -w 40 "${CWRAP_FIXTURE_DIR}/${file}"
     OUTPUT_FILE "${actual_file}"
     RESULT_VARIABLE wrap_result
     ERROR_VARIABLE wrap_stderr

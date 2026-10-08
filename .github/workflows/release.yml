@@ -147,25 +147,16 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           tar -C "$tmp" -xzf "$archive"
           bin="$tmp/cwrap-$VERSION-$TARGET/bin/cwrap"
-          run_cwrap() {
-            case "$TARGET" in
-              aarch64-linux-musl)
-                qemu-aarch64 "$bin" "$@"
-                ;;
-              *)
-                "$bin" "$@"
-                ;;
-            esac
-          }
-          run_cwrap --version
+          emulator=""
+          if [ "$TARGET" = aarch64-linux-musl ]; then
+            emulator=qemu-aarch64
+          fi
+          $emulator "$bin" --version
           # Every fixture in the golden test suite, rewrapped by the installed binary rather than a
-          # build-tree binary. It mirrors `cmake/cwrap_run_golden.cmake`.
-          for fixture in tests/fixtures/*.c; do
-            name=$(basename "$fixture")
-            output="$tmp/$name"
-            run_cwrap -w 40 "$fixture" > "$output"
-            diff -u "tests/expected/$name" "$output"
-          done
+          # build-tree binary.
+          cmake -DCWRAP_EXECUTABLE="$bin" -DCWRAP_EMULATOR="$emulator" \
+            -DCWRAP_FIXTURE_DIR="$PWD/tests/fixtures" -DCWRAP_EXPECTED_DIR="$PWD/tests/expected" \
+            -DCWRAP_SCRATCH_DIR="$tmp/golden" -P cmake/cwrap_run_golden.cmake
 
       - name: Verify archive contents
         shell: bash
