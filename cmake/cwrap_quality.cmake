@@ -70,6 +70,13 @@ if(CMAKE_CROSSCOMPILING)
   set(cwrap_cppcheck_command "")
 endif()
 
+# clang-tidy reads the compiler's command line, and it rejects GCC-only warning options such as
+# `-Wlogical-op` as errors. cppcheck does not read the flags, so it runs with any compiler.
+if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+  message(VERBOSE "compiler is ${CMAKE_C_COMPILER_ID}, not Clang; clang-tidy is disabled")
+  set(cwrap_clang_tidy_command "")
+endif()
+
 # Production and test targets run cppcheck with the same arguments, except that test targets also
 # honor inline suppressions, for the `deallocuse` false positive on a stream that a borrowing callee
 # leaves open.
