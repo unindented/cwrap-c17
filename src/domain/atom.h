@@ -3,18 +3,17 @@
 
 #include <stddef.h>
 
+#include "shared/str.h"
+
 struct Arena;
 
 /** One unbreakable wrap unit and its display width. */
 struct Atom {
-  /** Payload bytes. Not terminated; `text_len` is the length. */
-  const char* text;
-
-  /** Number of bytes in `text`. */
-  size_t text_len;
+  /** Payload bytes. */
+  struct Str text;
 
   /** Display columns occupied by `text`. */
-  size_t columns;
+  ptrdiff_t columns;
 };
 
 /** Arena-owned list of atoms. */
@@ -23,7 +22,7 @@ struct AtomList {
   struct Atom* items;
 
   /** Number of atoms in `items`. */
-  size_t count;
+  ptrdiff_t count;
 };
 
 /**
@@ -33,12 +32,10 @@ struct AtomList {
  * marks, format characters, and C0 controls other than tab count as 0. Invalid UTF-8 bytes count as
  * 1. Tab is not expected inside comment payloads.
  *
- * @param text     Bytes to measure. Must hold at least `text_len` bytes. May be `NULL` only when
- *                 `text_len` is 0.
- * @param text_len Number of bytes in `text`.
+ * @param text Bytes to measure.
  * @return Display columns occupied by `text`.
  */
-size_t atom_column_width(const char* text, size_t text_len);
+ptrdiff_t atom_column_width(struct Str text);
 
 /**
  * @brief Splits `text` into unbreakable wrap atoms.
@@ -48,15 +45,11 @@ size_t atom_column_width(const char* text, size_t text_len);
  * same as ordinary words. A trailing `.` or `,`, a possessive `'s`, and a hyphenated suffix travel
  * with the atom they follow.
  *
- * @param text      Paragraph payload. Must hold at least `text_len` bytes. May be `NULL` only when
- *                  `text_len` is 0.
- * @param text_len  Number of bytes in `text`.
- * @param arena     Arena that owns the atom array. Atom `text` pointers alias `text`. Must not be
- *                  `NULL`.
- * @param atoms_out Receives the atom list. Written only on success. Must not be `NULL`.
- * @return `0` on success, or `-1` on allocation failure.
+ * @param text  Paragraph payload.
+ * @param arena Arena that owns the atom array. Each atom's `text` is a view into `text`. Must not
+ *              be `NULL`.
+ * @return The atom list.
  */
-int atom_split(const char* text, size_t text_len, struct Arena* arena, struct AtomList* atoms_out)
-    __attribute__((nonnull(3, 4)));
+struct AtomList atom_split(struct Str text, struct Arena* arena) __attribute__((nonnull(2)));
 
 #endif

@@ -1,297 +1,349 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "app/cmd_wrap.h"
 #include "app/exit_code.h"
-#include "core/error.h"
-#include "runtime/fs.h"
+#include "app/wrap_input.h"
+#include "os_memory.h"
+#include "shared/arena.h"
+#include "shared/buf.h"
+#include "shared/str.h"
 #include "test_support.h"
 
-/** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
-enum { TEST_FILE_LEN_MAX = 1024 };
+// These tests run on the in-memory host, so each sets up its files and standard input in the host
+// and reads back what the run printed and wrote. `src/runtime/test_os.c` checks that the host
+// behaves as the POSIX one does for every property relied on here.
+
+/** Bytes of the source `test_wraps_large_file` wraps, at least a mebibyte. */
+enum { SOURCE_LEN_HUGE = 2 * 1024 * 1024 };
+
+/** Columns of the indent before the comment `test_wraps_deep_indent_at_width_one` wraps. */
+enum { DEEP_INDENT_COLUMNS = 200 };
+
+/** One-letter words in the comment `test_wraps_deep_indent_at_width_one` wraps. */
+enum { DEEP_WORD_COUNT = 40000 };
 
 /** Source the wrap-command tests start from, which rewraps to one line at width 40. */
 static const char wrap_fixture_source[] = "// one\n// two\n";
 
+/** Number of paths `bad_inputs` adds. */
+enum { BAD_INPUT_COUNT = 5 };
+
 /**
- * @brief Runs the wrap command while capturing both standard streams.
- *
- * Restores both streams before returning.
- *
- * @param options        Wrap options passed to `cmd_wrap_run`.
- * @param stdout_out     Buffer that receives terminated standard output.
- * @param stdout_out_len Size of `stdout_out` in bytes. Must be non-zero.
- * @param stderr_out     Buffer that receives terminated standard error.
- * @param stderr_out_len Size of `stderr_out` in bytes. Must be non-zero.
- * @return The command exit code, or `TEST_PLUMBING_FAILED` on test-plumbing failure.
+ * Paths among which three are bad, for the tests that no input is written when one is bad. The good
+ * ones need rewrapping, so a write would show. The bad ones come in path order `nul`, `missing`,
+ * `dir`.
  */
-static enum ExitCode run_wrap_capturing(const struct WrapOptions* options,
-                                        char* stdout_out,
-                                        size_t stdout_out_len,
-                                        char* stderr_out,
-                                        size_t stderr_out_len) {
-  stdout_out[0] = '\0';
-  stderr_out[0] = '\0';
-  enum ExitCode rc = (enum ExitCode)TEST_PLUMBING_FAILED;
-  bool has_plumbing_failed = true;
-  struct StreamCapture stdout_capture;
-  struct StreamCapture stderr_capture;
-  if (capture_begin(stdout, &stdout_capture) == 0) {
-    if (capture_begin(stderr, &stderr_capture) == 0) {
-      rc = cmd_wrap_run(options);
-      has_plumbing_failed = capture_end(&stderr_capture, stderr_out, stderr_out_len) != 0;
-    }
-    has_plumbing_failed =
-        capture_end(&stdout_capture, stdout_out, stdout_out_len) != 0 || has_plumbing_failed;
-  }
-  return has_plumbing_failed ? (enum ExitCode)TEST_PLUMBING_FAILED : rc;
+static char* bad_input_paths[BAD_INPUT_COUNT] = {"first.c", "nul.c", "missing.c", "last.c", "dir"};
+
+/** Messages an in-place run reports for `bad_input_paths`, with the `ENOENT` reason as `%s`. */
+#define BAD_INPUT_MESSAGES                                         \
+  "failed to read file: contains an embedded NUL byte ('nul.c')\n" \
+  "failed to read file: %s ('missing.c')\n"                        \
+  "failed to read file: not a regular file ('dir')\n"
+
+/**
+ * @brief Returns a host holding the files `bad_input_paths` names: two that need rewrapping, one
+ *        holding a `NUL`, and a directory. `missing.c` does not exist.
+ *
+ * @return The host, never `NULL`.
+ */
+static struct Os* bad_inputs(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "first.c", wrap_fixture_source);
+  os_memory_write_bytes(os, S("nul.c"), S("// one\0\n"));
+  os_memory_write(os, "last.c", wrap_fixture_source);
+  os_memory_mkdir(os, "dir");
+  return os;
 }
 
 /**
- * @brief Runs the wrap command with an unwritable standard output stream.
+ * @brief Returns the options of a file-mode run over `paths` at width 40.
  *
- * Captures the diagnostic and restores both streams before returning.
- *
- * @param options        Wrap options passed to `cmd_wrap_run`.
- * @param stderr_out     Buffer that receives terminated standard error.
- * @param stderr_out_len Size of `stderr_out` in bytes. Must be non-zero.
- * @return The command exit code, or `TEST_PLUMBING_FAILED` on test-plumbing failure.
+ * @param paths      Paths of the run. Must not be `NULL`.
+ * @param path_count Number of paths.
+ * @return The options, in the default mode.
  */
-static enum ExitCode run_wrap_with_unwritable_stdout(const struct WrapOptions* options,
-                                                     char* stderr_out,
-                                                     size_t stderr_out_len) {
-  stderr_out[0] = '\0';
-  enum ExitCode rc = (enum ExitCode)TEST_PLUMBING_FAILED;
-  bool has_plumbing_failed = true;
-  struct StreamCapture stdout_capture;
-  struct StreamCapture stderr_capture;
-  if (capture_begin_unwritable(stdout, &stdout_capture) == 0) {
-    if (capture_begin(stderr, &stderr_capture) == 0) {
-      rc = cmd_wrap_run(options);
-      has_plumbing_failed = capture_end(&stderr_capture, stderr_out, stderr_out_len) != 0;
-    }
-    has_plumbing_failed = capture_end(&stdout_capture, NULL, 0) != 0 || has_plumbing_failed;
-  }
-  return has_plumbing_failed ? (enum ExitCode)TEST_PLUMBING_FAILED : rc;
+static struct WrapOptions file_options(char** paths, ptrdiff_t path_count) {
+  return (struct WrapOptions){.width = 40, .paths = paths, .path_count = path_count};
 }
 
-// A readable source is rewritten to `stdout`, and the command reports success without a diagnostic.
+// A readable source is rewritten to standard output, and the command reports success without a
+// diagnostic.
 static void test_prints_rewritten_source(void) {
-  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
-    return;
-  }
-  char* paths[] = {file_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 1,
-  };
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  char* paths[] = {"a.c"};
+  const struct WrapOptions options = file_options(paths, 1);
 
-  char stdout_out[1024];
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
-  TEST_CHECK(rc == EXIT_CODE_OK);
-  TEST_CHECK(strcmp(stdout_out, "// one two\n") == 0);
-  TEST_CHECK(stderr_out[0] == '\0');
-
-  (void)unlink(file_path);
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_is_printed(os, 1, "// one two\n"));
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
 }
 
-// Check mode reports a source that would change, writes nothing to `stdout`, and leaves the source
-// untouched.
+// Check mode reports a source that would change, prints nothing to standard output, and leaves the
+// source untouched.
 static void test_reports_check_change(void) {
-  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
-    return;
-  }
-  char* paths[] = {file_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 1,
-      .is_check = true,
-  };
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  char* paths[] = {"a.c"};
+  struct WrapOptions options = file_options(paths, 1);
+  options.is_check = true;
 
-  char stdout_out[1024];
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
-  TEST_CHECK(rc == EXIT_CODE_FAILURE);
-  TEST_CHECK(stdout_out[0] == '\0');
-  char expected[ERROR_MESSAGE_SIZE];
-  const int expected_len = snprintf(expected, sizeof(expected), "would rewrap '%s'\n", file_path);
-  TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(stderr_out, expected) == 0);
-
-  char* file_data = NULL;
-  size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(strcmp(file_data, wrap_fixture_source) == 0);
-    free(file_data);
-  }
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
+  TEST_CHECK(os_memory_is_printed(os, 2, "would rewrap 'a.c'\n"));
+  TEST_CHECK(os_memory_is_file(os, "a.c", wrap_fixture_source));
 }
 
-// In-place mode overwrites a changed source, writes nothing to either stream, and reports success.
+// In-place mode overwrites a changed source, prints nothing to either stream, and reports success.
 static void test_rewrites_in_place(void) {
-  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
-    return;
-  }
-  char* paths[] = {file_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 1,
-      .is_in_place = true,
-  };
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  char* paths[] = {"a.c"};
+  struct WrapOptions options = file_options(paths, 1);
+  options.is_in_place = true;
 
-  char stdout_out[1024];
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
-  TEST_CHECK(rc == EXIT_CODE_OK);
-  TEST_CHECK(stdout_out[0] == '\0');
-  TEST_CHECK(stderr_out[0] == '\0');
-
-  char* file_data = NULL;
-  size_t file_len = 0;
-  TEST_CHECK(fs_read_file(file_path, TEST_FILE_LEN_MAX, &file_data, &file_len, NULL, 0) == 0);
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
-  TEST_ASSERT(file_data != NULL);
-  if (file_data != NULL) {
-    TEST_CHECK(strcmp(file_data, "// one two\n") == 0);
-    free(file_data);
-  }
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
+  TEST_CHECK(os_memory_is_file(os, "a.c", "// one two\n"));
 }
 
-// A missing input reports the read failure to `stderr`, writes nothing to `stdout`, and returns the
-// runtime failure code.
+// One file given twice in place succeeds and holds the bytes of a single rewrite, because the
+// second pass finds it already wrapped.
+static void test_in_place_accepts_file_given_twice(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  char* paths[] = {"a.c", "a.c"};
+  struct WrapOptions options = file_options(paths, 2);
+  options.is_in_place = true;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
+  TEST_CHECK(os_memory_is_file(os, "a.c", "// one two\n"));
+}
+
+// A comment indented far past a narrow width, which writes a hundred times its size because every
+// word gets a line of its own behind a copy of the indent, is rewritten in place. Regions sized
+// only as a multiple of the source would run out of memory on it.
+static void test_wraps_deep_indent_at_width_one(void) {
+  enum { SOURCE_LEN = DEEP_INDENT_COLUMNS + 2 + 2 * DEEP_WORD_COUNT + 1 };
+  struct Arena arena = test_arena();
+  char* source = arena_new(&arena, SOURCE_LEN, char);
+  memset(source, ' ', DEEP_INDENT_COLUMNS);
+  memcpy(source + DEEP_INDENT_COLUMNS, "//", 2);
+  for (ptrdiff_t i = 0; i < DEEP_WORD_COUNT; i++) {
+    memcpy(source + DEEP_INDENT_COLUMNS + 2 + 2 * i, " a", 2);
+  }
+  source[SOURCE_LEN - 1] = '\n';
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S("a.c"), (struct Str){source, SOURCE_LEN});
+  char* paths[] = {"a.c"};
+  struct WrapOptions options = file_options(paths, 1);
+  options.width = 1;
+  options.is_in_place = true;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
+  // Each word is a line of the indent, the marker, a space, the word and a newline.
+  struct Buf expected = {.arena = &arena};
+  for (ptrdiff_t i = 0; i < DEEP_WORD_COUNT; i++) {
+    buf_append(&expected, (struct Str){source, DEEP_INDENT_COLUMNS + 2});
+    buf_append(&expected, S(" a\n"));
+  }
+  TEST_CHECK(os_memory_is_file(os, "a.c", buf_cstr(&expected)));
+}
+
+// A source of about two mebibytes is wrapped within the reserved regions. Each comment is one line
+// already wrapped, ended by a line of code, so the output is the source.
+static void test_wraps_large_file(void) {
+  static const char line[] =
+      "// alpha beta gamma delta epsilon zeta eta theta iota kappa\nint x;\n";
+  const ptrdiff_t line_len = (ptrdiff_t)sizeof(line) - 1;
+  struct Arena arena = test_arena();
+  struct Buf source = {.arena = &arena};
+  while (source.len + line_len <= SOURCE_LEN_HUGE) {
+    buf_append(&source, (struct Str){line, line_len});
+  }
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S("a.c"), buf_str(&source));
+  char* paths[] = {"a.c"};
+  struct WrapOptions options = file_options(paths, 1);
+  options.width = 100;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(str_eq(os_memory_printed(os, 1), buf_str(&source)));
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
+}
+
+// A missing input reports the read failure on standard error, prints nothing to standard output,
+// and returns the runtime failure code.
 static void test_reports_missing_file(void) {
-  char missing_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(missing_path, "", 0) == NULL) {
-    return;
-  }
-  (void)unlink(missing_path);
-  char* paths[] = {missing_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 1,
-  };
+  struct Os* os = os_memory();
+  char* paths[] = {"missing.c"};
+  const struct WrapOptions options = file_options(paths, 1);
 
-  char stdout_out[1024];
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
-  TEST_CHECK(rc == EXIT_CODE_FAILURE);
-  TEST_CHECK(stdout_out[0] == '\0');
-  char reason[FS_REASON_SIZE];
-  char expected[ERROR_MESSAGE_SIZE];
-  const int expected_len =
-      snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')\n",
-               error_system_message(reason, sizeof(reason), ENOENT), missing_path);
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(stderr_out, expected) == 0);
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2), "failed to read file: %s ('missing.c')\n",
+                          strerror(ENOENT)));
 }
 
-// Two inputs that both fail in check mode append one diagnostic line each, so neither is lost to
-// the other. This is the postcondition `cmd_wrap_run` states for check mode and the reason the
-// diagnostic buffer is growable rather than a fixed buffer: an `append_error` that overwrote, or
-// that dropped the separator and ran two messages together, would still satisfy every single-file
-// test.
+// Two inputs that both fail in check mode log one line each, so neither is lost to the other. This
+// is the postcondition `cmd_wrap_run` states for check mode: a log that overwrote, or that dropped
+// the newline and ran two messages together, would still satisfy every single-file test.
 static void test_reports_one_line_per_failing_file(void) {
-  char missing_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(missing_path, "", 0) == NULL) {
-    return;
-  }
-  (void)unlink(missing_path);
-  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
-    return;
-  }
-  char* paths[] = {missing_path, file_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 2,
-      .is_check = true,
-  };
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  char* paths[] = {"missing.c", "a.c"};
+  struct WrapOptions options = file_options(paths, 2);
+  options.is_check = true;
 
-  char stdout_out[1024];
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_capturing(&options, stdout_out, sizeof(stdout_out), stderr_out, sizeof(stderr_out));
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
-  TEST_CHECK(rc == EXIT_CODE_FAILURE);
-  TEST_CHECK(stdout_out[0] == '\0');
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
   // Paths are reported in argument order. Compared whole, with the separator in the middle, so a
   // dropped newline or a lost line both fail here.
-  char reason[FS_REASON_SIZE];
-  char expected[ERROR_MESSAGE_SIZE * 2];
-  const int expected_len =
-      snprintf(expected, sizeof(expected), "failed to read file: %s ('%s')\nwould rewrap '%s'\n",
-               error_system_message(reason, sizeof(reason), ENOENT), missing_path, file_path);
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(stderr_out, expected) == 0);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2),
+                          "failed to read file: %s ('missing.c')\nwould rewrap 'a.c'\n",
+                          strerror(ENOENT)));
 }
 
-// A source that rewrites fine but cannot be written out fails with the stream's own reason, rather
-// than exiting 0 when nobody received the output. The reason it reports is what lets the user tell
-// a closed pipe from a full disk. A read-only `/dev/null` on `STDOUT_FILENO` is the deterministic
-// way to reach that failure: the writes fail, and `cmd_wrap_run` reports it. The diagnostic still
-// reaches the captured `stderr`.
+// A source that rewrites fine but cannot be printed fails with the write's own reason, naming the
+// file, rather than exiting 0 when nobody received the output. The reason it reports is what lets
+// the user tell a closed pipe from a full disk. The run stops at the first input whose output is
+// lost, so the input after it is not printed either.
 static void test_reports_unwritable_stdout(void) {
-  char file_path[] = "/tmp/cwrap-cmd-wrap.XXXXXX";
-  if (init_fixture_file(file_path, wrap_fixture_source, strlen(wrap_fixture_source)) == NULL) {
-    return;
-  }
-  char* paths[] = {file_path};
-  const struct WrapOptions options = {
-      .width = 40,
-      .paths = paths,
-      .path_count = 1,
-  };
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  os_memory_write(os, "b.c", wrap_fixture_source);
+  os_memory_fail_print(os, 1, 0, EPIPE);
+  char* paths[] = {"a.c", "b.c"};
+  const struct WrapOptions options = file_options(paths, 2);
 
-  char stderr_out[1024];
-  const enum ExitCode rc =
-      run_wrap_with_unwritable_stdout(&options, stderr_out, sizeof(stderr_out));
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2),
+                          "failed to write rewritten file to 'stdout': %s (for 'a.c')\n",
+                          strerror(EPIPE)));
+}
 
-  TEST_CHECK(rc == EXIT_CODE_FAILURE);
-  // `EBADF`: the writes go to a descriptor opened read-only. The reason is derived from the running
-  // libc rather than hardcoded, and the whole line is compared so a reworded prefix fails too.
-  char reason[ERROR_MESSAGE_SIZE];
-  char expected[ERROR_MESSAGE_SIZE * 2];
-  const int expected_len =
-      snprintf(expected, sizeof(expected), "failed to write rewritten file to 'stdout': %s\n",
-               error_system_message(reason, sizeof(reason), EBADF));
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(stderr_out, expected) == 0);
+// An in-place write that fails stops the run with the write's own reason and leaves the file as it
+// was, so a full disk never truncates a user's source.
+static void test_reports_failed_in_place_write(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  os_memory_write(os, "b.c", wrap_fixture_source);
+  os_memory_fail(os, OS_MEMORY_OP_WRITE, "a.c", ENOSPC);
+  char* paths[] = {"a.c", "b.c"};
+  struct WrapOptions options = file_options(paths, 2);
+  options.is_in_place = true;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2), "failed to write file: %s ('a.c')\n",
+                          strerror(ENOSPC)));
+  TEST_CHECK(os_memory_is_file(os, "a.c", wrap_fixture_source));
+  TEST_CHECK(os_memory_is_file(os, "b.c", wrap_fixture_source));
+}
+
+// A path the process may not open is reported with the system's reason. The default mode prints the
+// file before it and stops there.
+static void test_reports_unreadable_file(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  os_memory_write(os, "locked.c", wrap_fixture_source);
+  os_memory_fail(os, OS_MEMORY_OP_OPEN, "locked.c", EACCES);
+  char* paths[] = {"a.c", "locked.c"};
+  const struct WrapOptions options = file_options(paths, 2);
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, "// one two\n"));
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2), "failed to read file: %s ('locked.c')\n",
+                          strerror(EACCES)));
+}
+
+// A file over `SOURCE_LEN_MAX` is refused from its size, after the default mode printed the file
+// before it. The file is extended as `truncate` would, so the host holds only its first byte.
+static void test_reports_oversize_file(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "a.c", wrap_fixture_source);
+  os_memory_write(os, "big.c", "a");
+  const ptrdiff_t oversize_len = (ptrdiff_t)SOURCE_LEN_MAX + 1;
+  os_memory_truncate(os, "big.c", oversize_len);
+  char* paths[] = {"a.c", "big.c"};
+  const struct WrapOptions options = file_options(paths, 2);
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, "// one two\n"));
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2),
+                          "failed to read file: exceeds max file size (%d bytes) at %td bytes "
+                          "('big.c')\n",
+                          SOURCE_LEN_MAX, oversize_len));
+}
+
+// The default mode prints each input as it goes and stops at the first bad one, the file holding a
+// `NUL`, after printing the file before it.
+static void test_default_mode_stops_at_first_bad_input(void) {
+  struct Os* os = bad_inputs();
+  const struct WrapOptions options = file_options(bad_input_paths, BAD_INPUT_COUNT);
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, "// one two\n"));
+  TEST_CHECK(os_memory_is_printed(
+      os, 2, "failed to read file: contains an embedded NUL byte ('nul.c')\n"));
+}
+
+// In-place mode reads every input before it writes any, reports each bad one in path order, and
+// rewrites none of the files, not even the one before the first bad path.
+static void test_in_place_writes_nothing_when_an_input_is_bad(void) {
+  struct Os* os = bad_inputs();
+  struct WrapOptions options = file_options(bad_input_paths, BAD_INPUT_COUNT);
+  options.is_in_place = true;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2), BAD_INPUT_MESSAGES, strerror(ENOENT)));
+  TEST_CHECK(os_memory_is_file(os, "first.c", wrap_fixture_source));
+  TEST_CHECK(os_memory_is_file(os, "last.c", wrap_fixture_source));
+}
+
+// Check mode writes nothing anyway, so it reads each input once and reports the same inputs in path
+// order, each bad path among the files that would change.
+static void test_check_mode_reports_bad_inputs_in_path_order(void) {
+  struct Os* os = bad_inputs();
+  struct WrapOptions options = file_options(bad_input_paths, BAD_INPUT_COUNT);
+  options.is_check = true;
+
+  TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
+  TEST_CHECK(test_text_is(os_memory_printed(os, 2),
+                          "would rewrap 'first.c'\n"
+                          "failed to read file: contains an embedded NUL byte ('nul.c')\n"
+                          "failed to read file: %s ('missing.c')\n"
+                          "would rewrap 'last.c'\n"
+                          "failed to read file: not a regular file ('dir')\n",
+                          strerror(ENOENT)));
 }
 
 TEST_LIST = {
     {"prints rewritten source", test_prints_rewritten_source},
     {"reports check change", test_reports_check_change},
     {"rewrites in place", test_rewrites_in_place},
+    {"in place accepts file given twice", test_in_place_accepts_file_given_twice},
+    {"wraps deep indent at width one", test_wraps_deep_indent_at_width_one},
+    {"wraps large file", test_wraps_large_file},
     {"reports missing file", test_reports_missing_file},
     {"reports one line per failing file", test_reports_one_line_per_failing_file},
     {"reports unwritable stdout", test_reports_unwritable_stdout},
+    {"reports failed in place write", test_reports_failed_in_place_write},
+    {"reports unreadable file", test_reports_unreadable_file},
+    {"reports oversize file", test_reports_oversize_file},
+    {"default mode stops at first bad input", test_default_mode_stops_at_first_bad_input},
+    {"in place writes nothing when an input is bad",
+     test_in_place_writes_nothing_when_an_input_is_bad},
+    {"check mode reports bad inputs in path order",
+     test_check_mode_reports_bad_inputs_in_path_order},
     {NULL, NULL},
 };

@@ -2,6 +2,6 @@
 
 #include "app/cwrap_version.h"
 
-const char* cwrap_version_string(void) {
-  return "@PROJECT_VERSION@";
+struct Str cwrap_version_string(void) {
+  return S("@PROJECT_VERSION@");
 }

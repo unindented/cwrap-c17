@@ -1,7 +1,9 @@
 #include "app/cli.h"
 
-#include <errno.h>
+#include <assert.h>
 #include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 // copt is header-only. This is the single translation unit that defines its implementation. A
@@ -11,11 +13,15 @@
 
 #include "app/cwrap_version.h"
 #include "core/parse.h"
+#include "runtime/os.h"
+#include "shared/arena.h"
+#include "shared/buf.h"
+#include "shared/str.h"
 
 /**
  * Largest wrapping column `--width` accepts.
  *
- * The ceiling is not a safety bound. `fill` compares columns without overflow at any `size_t`
+ * The ceiling is not a safety bound. `fill` compares columns without overflow at any `ptrdiff_t`
  * width, and no allocation scales with it. It exists because past the display width of the longest
  * paragraph every width gives the same output, each paragraph joined onto one line, so a larger
  * value cannot ask for anything a smaller one does not already do.
@@ -42,11 +48,12 @@ static bool has_error(const struct CliOptions* options) __attribute__((nonnull(1
  * once `has_error` reports a recorded diagnostic.
  *
  * @param options Options whose `error_message` receives the diagnostic. Must not be `NULL`.
- * @param fmt     `printf`-style format string. Must not be `NULL`.
- * @param ...     Arguments for `fmt`.
+ * @param arena   Arena that owns the diagnostic. Must not be `NULL`.
+ * @param format  `printf` format of the diagnostic. Must not be `NULL`.
+ * @param ...     Arguments that the format converts.
  */
-static void record_error(struct CliOptions* options, const char* fmt, ...)
-    __attribute__((format(printf, 2, 3), nonnull(1, 2)));
+static void record_error(struct CliOptions* options, struct Arena* arena, const char* format, ...)
+    __attribute__((format(printf, 3, 4), nonnull(1, 2, 3)));
 
 /**
  * @brief Reports a missing option argument as `NULL` instead of letting copt exit.
@@ -88,11 +95,14 @@ static char* cli_parse_handle_missing_arg(const struct copt* opt, void* aux);
  *                the end of that element. Must not be `NULL`.
  * @param argv    Argument vector the parser is walking, used to reach the current element whole.
  *                Must not be `NULL`.
+ * @param arena   Arena that owns the diagnostic. Must not be `NULL`.
  * @return `0` when no value is attached, or `-1` with a diagnostic recorded.
  */
 static int cli_parse_require_no_attached_value(struct CliOptions* options,
                                                struct copt* opt,
-                                               char** argv) __attribute__((nonnull(1, 2, 3)));
+                                               char* const* argv,
+                                               struct Arena* arena)
+    __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
  * @brief Parses and validates the `--width` option argument.
@@ -102,9 +112,11 @@ static int cli_parse_require_no_attached_value(struct CliOptions* options,
  *
  * @param options Options receiving the wrapping column or a diagnostic. Must not be `NULL`.
  * @param opt     copt parser positioned on the `--width` option. Must not be `NULL`.
+ * @param arena   Arena that owns the diagnostic. Must not be `NULL`.
  */
-static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
-    __attribute__((nonnull(1, 2)));
+static void cli_parse_width_option(struct CliOptions* options,
+                                   struct copt* opt,
+                                   struct Arena* arena) __attribute__((nonnull(1, 2, 3)));
 
 /**
  * @brief Resolves the positional file arguments into the input mode.
@@ -118,32 +130,16 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
  * @param argc             Argument count.
  * @param argv             Argument vector. Must not be `NULL`.
  * @param positional_index Index of the first positional argument, from `copt_idx`.
+ * @param arena            Arena that owns the diagnostic. Must not be `NULL`.
  */
-static void cli_parse_paths(struct CliOptions* options, int argc, char** argv, int positional_index)
-    __attribute__((nonnull(1, 3)));
+static void cli_parse_paths(struct CliOptions* options,
+                            int argc,
+                            char** argv,
+                            ptrdiff_t positional_index,
+                            struct Arena* arena) __attribute__((nonnull(1, 3, 5)));
 
-/**
- * @brief Flushes `stream` and reports whether any write to it failed, leaving a reason in `errno`.
- *
- * The check needs both halves. `fflush` reports a write that fails now, when the buffered bytes
- * reach the stream. `ferror` catches one the stream latched during an earlier unchecked `fprintf`.
- * Neither alone suffices, because `stdout` to a pipe or a file is fully buffered, so an earlier
- * `fprintf` can succeed while the write does not.
- *
- * The function always leaves `errno` describing the failure, which lets `cli_dispatch` report a
- * reason rather than only an exit code. A latched error's own `errno` may have been overwritten
- * since, so that case substitutes `EIO` rather than relay a stale value as the cause.
- *
- * @param stream Stream to flush and inspect. Must not be `NULL`.
- * @return `0` when every write succeeded, or `-1` with `errno` set to the reason.
- */
-static int flush_stream(FILE* stream) __attribute__((nonnull(1)));
-
-void cli_parse(struct CliOptions* options, int argc, char** argv) {
-  *options = (struct CliOptions){
-      .action = CLI_ACTION_RUN,
-      .width = WRAP_COLUMN_DEFAULT,
-  };
+void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* arena) {
+  *options = (struct CliOptions){.action = CLI_ACTION_RUN, .width = WRAP_COLUMN_DEFAULT};
 
   bool has_version = false;
   bool has_help = false;
@@ -154,33 +150,33 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
     // A valid informational flag stays requested whatever follows it, and a rejected spelling never
     // requests one, so the outcome does not depend on the order the flags appear in.
     if (copt_opt(&opt, "V|version")) {
-      if (cli_parse_require_no_attached_value(options, &opt, argv) == 0) {
+      if (cli_parse_require_no_attached_value(options, &opt, argv, arena) == 0) {
         has_version = true;
       }
     } else if (copt_opt(&opt, "h|help")) {
-      if (cli_parse_require_no_attached_value(options, &opt, argv) == 0) {
+      if (cli_parse_require_no_attached_value(options, &opt, argv, arena) == 0) {
         has_help = true;
       }
     } else if (copt_opt(&opt, "w|width")) {
-      cli_parse_width_option(options, &opt);
+      cli_parse_width_option(options, &opt, arena);
     } else if (copt_opt(&opt, "i|in-place")) {
-      if (cli_parse_require_no_attached_value(options, &opt, argv) == 0) {
+      if (cli_parse_require_no_attached_value(options, &opt, argv, arena) == 0) {
         options->is_in_place = true;
       }
     } else if (copt_opt(&opt, "c|check")) {
-      if (cli_parse_require_no_attached_value(options, &opt, argv) == 0) {
+      if (cli_parse_require_no_attached_value(options, &opt, argv, arena) == 0) {
         options->is_check = true;
       }
     } else {
-      record_error(options, "unknown option '%s'", copt_curopt(&opt));
+      record_error(options, arena, "unknown option '%s'", copt_curopt(&opt));
       // A value attached to an unknown option is dropped with the rest of its element, so `-x=V`
       // cannot request the version. The unknown-option diagnostic above is the one that stays,
       // because `record_error` keeps the first.
-      (void)cli_parse_require_no_attached_value(options, &opt, argv);
+      (void)cli_parse_require_no_attached_value(options, &opt, argv, arena);
     }
   }
 
-  cli_parse_paths(options, argc, argv, copt_idx(&opt));
+  cli_parse_paths(options, argc, argv, copt_idx(&opt), arena);
 
   // Version wins over everything. Help then beats a genuine parse error. The parser rejects a mode
   // conflict once no informational flag applies.
@@ -188,56 +184,67 @@ void cli_parse(struct CliOptions* options, int argc, char** argv) {
     // An informational action replaces any diagnostic recorded above, so drop it rather than hand
     // back a message that does not describe the outcome. `error_message` is then non-empty exactly
     // when the action is `CLI_ACTION_ERROR`.
-    options->error_message[0] = '\0';
+    options->error_message = (struct Str){0};
     options->action = has_version ? CLI_ACTION_VERSION : CLI_ACTION_HELP;
   } else if (has_error(options)) {
     options->action = CLI_ACTION_ERROR;
   } else if (options->is_check && options->is_in_place) {
-    record_error(options, "options '--check' and '--in-place' cannot be combined");
+    record_error(options, arena, "options '--check' and '--in-place' cannot be combined");
     options->action = CLI_ACTION_ERROR;
   } else if (options->is_stdin && options->is_in_place) {
-    record_error(options, "option '--in-place' cannot be used with standard input");
+    record_error(options, arena, "option '--in-place' cannot be used with standard input");
     options->action = CLI_ACTION_ERROR;
   }
 }
 
-int cli_print_version(FILE* stream) {
-  fprintf(stream, "cwrap %s\n", cwrap_version_string());
-  return flush_stream(stream);
+int cli_print_version(struct Os* os, struct Arena scratch) {
+  struct Buf text = {.arena = &scratch};
+  const struct Str version = cwrap_version_string();
+  buf_printf(&text, "cwrap %.*s\n", STR_FMT(version));
+  return os_print(os, 1, buf_str(&text));
 }
 
-int cli_print_usage(FILE* stream, const char* program_name) {
-  fprintf(stream,
-          "Rewrap C comments to a wrapping column.\n"
-          "\n"
-          "USAGE:\n"
-          "    %s [options] [<file>...]\n"
-          "\n"
-          "If no file is given, or the file is '-', read standard input.\n"
-          "\n"
-          "OPTIONS:\n"
-          "    -w, --width N   Wrap comments at column N (default: %d)\n"
-          "    -i, --in-place  Rewrite files in place\n"
-          "    -c, --check     Exit non-zero if any input would change\n"
-          "    -h, --help      Print this help and exit\n"
-          "    -V, --version   Print version information and exit\n",
-          program_name, WRAP_COLUMN_DEFAULT);
-  // The `fflush` plus `ferror` pair, for the reason given on `flush_stream`.
-  return flush_stream(stream);
+int cli_print_usage(struct Str program_name, struct Os* os, struct Arena scratch) {
+  struct Buf text = {.arena = &scratch};
+  buf_printf(&text,
+             "Rewrap C comments to a wrapping column.\n"
+             "\n"
+             "USAGE:\n"
+             "    %.*s [options] [<file>...]\n"
+             "\n"
+             "If no file is given, or the file is '-', read standard input.\n"
+             "\n"
+             "OPTIONS:\n"
+             "    -w, --width N   Wrap comments at column N (default: %d)\n"
+             "    -i, --in-place  Rewrite files in place\n"
+             "    -c, --check     Exit non-zero if any input would change\n"
+             "    -h, --help      Print this help and exit\n"
+             "    -V, --version   Print version information and exit\n",
+             STR_FMT(program_name), WRAP_COLUMN_DEFAULT);
+  return os_print(os, 1, buf_str(&text));
 }
 
 static bool has_error(const struct CliOptions* options) {
-  return options->error_message[0] != '\0';
+  return options->error_message.len > 0;
 }
 
-static void record_error(struct CliOptions* options, const char* fmt, ...) {
+static void record_error(struct CliOptions* options, struct Arena* arena, const char* format, ...) {
   if (has_error(options)) {
     return;
   }
-  va_list ap;
-  va_start(ap, fmt);
-  error_report_va(options->error_message, sizeof(options->error_message), fmt, ap);
-  va_end(ap);
+  // The first pass measures the message and the second writes it into `arena`, as `buf_printf`
+  // does. Starting the list twice needs no `va_copy`, and forwarding it to `buf_vprintf` instead
+  // makes Clang's analyzer report a false `va_end` on AArch64 Linux.
+  va_list args;
+  va_start(args, format);
+  const int message_len = vsnprintf(NULL, 0, format, args);
+  va_end(args);
+  assert(message_len >= 0);
+  char* message = arena_new(arena, (ptrdiff_t)message_len + 1, char);
+  va_start(args, format);
+  (void)vsnprintf(message, (size_t)message_len + 1, format, args);
+  va_end(args);
+  options->error_message = (struct Str){message, message_len};
 }
 
 static char* cli_parse_handle_missing_arg(const struct copt* opt, void* aux) {
@@ -248,7 +255,8 @@ static char* cli_parse_handle_missing_arg(const struct copt* opt, void* aux) {
 
 static int cli_parse_require_no_attached_value(struct CliOptions* options,
                                                struct copt* opt,
-                                               char** argv) {
+                                               char* const* argv,
+                                               struct Arena* arena) {
   const char* token = copt_curopt(opt);
   // The whole element, which for a short option is the entire cluster rather than the one letter
   // `token` names. copt documents `copt_idx` for use after the option loop, where it gives the
@@ -267,9 +275,7 @@ static int cli_parse_require_no_attached_value(struct CliOptions* options,
   if (is_short_option && equals[-1] != token[1]) {
     return 0;
   }
-  // The whole element trails the cause. It is a raw argument, so it is unbounded and must not be
-  // able to truncate the reason away.
-  record_error(options, "option does not take a value: '%s'", element);
+  record_error(options, arena, "option does not take a value: '%s'", element);
   // `copt_oarg` consumes whatever follows the current option in its element and ends any short
   // cluster, so the next `copt_next` moves on to the following element. The value must be attached
   // here, so it never reaches for the next element or calls the missing-argument handler. Like
@@ -278,36 +284,28 @@ static int cli_parse_require_no_attached_value(struct CliOptions* options,
   return -1;
 }
 
-static void cli_parse_width_option(struct CliOptions* options, struct copt* opt) {
+static void cli_parse_width_option(struct CliOptions* options,
+                                   struct copt* opt,
+                                   struct Arena* arena) {
   const char* value = copt_arg(opt);
-  size_t width = 0;
+  ptrdiff_t width = 0;
   if (value == NULL) {
-    // `copt_curopt` returns a pointer into `opt`'s own scratch storage for a short option. That
-    // pointer is valid only until the next `copt_next`, so the code must format it before the loop
-    // advances. `record_error` copies into `options->error_message` on the spot. This is also the
-    // one site that reaches `copt_curopt` after a copt call that can mutate the parser, namely
-    // `copt_arg` on the line above. The `copt_opt` tests in `cli_parse` take a `const struct copt*`
-    // and so cannot invalidate `curopt`. `copt_arg` takes a mutable one and is safe here only
-    // because it never touches `curopt`. copt's own contract does not promise that, so recheck it
-    // on a vendor bump. `cli_parse_require_no_attached_value` also calls a mutating `copt_oarg`,
-    // but only after its last read of `curopt`, so it does not depend on that.
+    // The option is named by its long spelling whichever one was typed, as the two diagnostics
+    // below name it.
     //
     // A negative value also lands here rather than in the positive-integer check below. copt reads
     // `-1` as an option cluster, so `--width` gets no argument at all. `--width -1` therefore
     // reports a missing wrapping column rather than an invalid one. The code accepts this rather
     // than working around it, because claiming `-1` as this option's argument would mean
     // second-guessing the vendored parser's own split between options and arguments.
-    record_error(options, "option '%s' requires a wrapping column", copt_curopt(opt));
-  } else if (parse_size(value, &width) != 0 || width == 0) {
-    // The value is raw `argv`, bounded only by `ARG_MAX`, so it trails the reason. A leading value
-    // would make this the one value-carrying CLI message whose reason could truncate away.
-    record_error(options, "option '--width' must be a positive integer: '%s'", value);
-  } else if (width > (size_t)WRAP_COLUMN_MAX) {
-    // The message prints both values as parsed numbers rather than as the raw argument, because a
-    // `size_t` is bounded at twenty digits and so cannot truncate the limit off the end. This
-    // matches `exceeds max file size (...) at ...` in `fs.c`, the closest sibling.
-    record_error(options, "option '--width' exceeds max wrapping column (%zu) at %zu",
-                 (size_t)WRAP_COLUMN_MAX, width);
+    record_error(options, arena, "option '--width' requires a wrapping column");
+  } else if (parse_size(str_from_cstr(value), &width) != 0 || width == 0) {
+    record_error(options, arena, "option '--width' must be a positive integer: '%s'", value);
+  } else if (width > WRAP_COLUMN_MAX) {
+    // `parse_size` saturates a value past `PTRDIFF_MAX`, whose number is then lost, so the message
+    // quotes the argument as typed, without its leading zeros.
+    record_error(options, arena, "option '--width' exceeds max wrapping column (%d) at %s",
+                 WRAP_COLUMN_MAX, value + strspn(value, "0"));
   } else {
     options->width = width;
   }
@@ -316,14 +314,15 @@ static void cli_parse_width_option(struct CliOptions* options, struct copt* opt)
 static void cli_parse_paths(struct CliOptions* options,
                             int argc,
                             char** argv,
-                            int positional_index) {
+                            ptrdiff_t positional_index,
+                            struct Arena* arena) {
   if (positional_index < argc) {
     options->paths = argv + positional_index;
     options->path_count = argc - positional_index;
   }
 
-  int stdin_path_count = 0;
-  for (int i = 0; i < options->path_count; i++) {
+  ptrdiff_t stdin_path_count = 0;
+  for (ptrdiff_t i = 0; i < options->path_count; i++) {
     if (strcmp(options->paths[i], "-") == 0) {
       stdin_path_count++;
     }
@@ -331,24 +330,13 @@ static void cli_parse_paths(struct CliOptions* options,
   if (options->path_count == 0) {
     options->is_stdin = true;
   } else if (stdin_path_count > 1) {
-    record_error(options, "standard input may be specified only once");
+    record_error(options, arena, "standard input may be specified only once");
   } else if (stdin_path_count == 1 && options->path_count > 1) {
-    record_error(options, "standard input cannot be combined with file inputs");
+    record_error(options, arena, "standard input cannot be combined with file inputs");
   } else if (stdin_path_count == 1) {
     // Normalize explicit `-` to the same representation as implicit standard input.
     options->paths = NULL;
     options->path_count = 0;
     options->is_stdin = true;
   }
-}
-
-static int flush_stream(FILE* stream) {
-  if (fflush(stream) != 0) {
-    return -1;
-  }
-  if (ferror(stream) != 0) {
-    errno = EIO;
-    return -1;
-  }
-  return 0;
 }

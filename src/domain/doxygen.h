@@ -4,29 +4,24 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "shared/str.h"
+
 struct Arena;
 struct BodyLineList;
 
 /** Parsed slices and offsets for one Doxygen command at the start of a payload. */
 struct DoxygenTag {
-  /** Command word after the `@` or `\` marker, borrowed from the parsed text. */
-  const char* command;
-
-  /** Number of bytes in `command`. */
-  size_t command_len;
+  /** Command word after the `@` or `\` marker, a view into the parsed text. */
+  struct Str command;
 
   /** Bytes from the start through the command word and any bracketed or braced option. */
-  size_t keyword_len;
+  ptrdiff_t keyword_len;
 
-  /** Name that a `param` or `retval` command documents, borrowed from the parsed text, or
-      `NULL`. */
-  const char* name;
-
-  /** Number of bytes in `name`. */
-  size_t name_len;
+  /** Name that a `param` or `retval` command documents, a view into the parsed text, or empty. */
+  struct Str name;
 
   /** Offset where the description begins, after separating whitespace. */
-  size_t description_offset;
+  ptrdiff_t description_offset;
 };
 
 /**
@@ -36,14 +31,11 @@ struct DoxygenTag {
  * no whitespace inside, such as `@param[in]` or `\code{.c}`. Whitespace or the end of `text` must
  * follow it. A `param` or `retval` command also takes the next word as the name it documents.
  *
- * @param text     Payload bytes. Must hold at least `text_len` bytes. May be `NULL` only when
- *                 `text_len` is 0.
- * @param text_len Number of bytes in `text`.
- * @param tag_out  Receives the parsed command when one is present. Must not be `NULL`.
+ * @param text    Payload bytes.
+ * @param tag_out Receives the parsed command when one is present. Must not be `NULL`.
  * @return `true` when `text` starts with a command, or `false` otherwise.
  */
-bool doxygen_has_tag(const char* text, size_t text_len, struct DoxygenTag* tag_out)
-    __attribute__((nonnull(3)));
+bool doxygen_has_tag(struct Str text, struct DoxygenTag* tag_out) __attribute__((nonnull(2)));
 
 /**
  * @brief Aligns the descriptions of `param` and `retval` tags to the widest name plus one space.
@@ -51,15 +43,10 @@ bool doxygen_has_tag(const char* text, size_t text_len, struct DoxygenTag* tag_o
  * Each of the two commands aligns separately, across the whole body. Other tags keep their own
  * description columns. The function rewrites tag line texts in place using `arena`.
  *
- * @param lines   Body lines to align. Must not be `NULL`.
- * @param arena   Arena that owns replacement line texts. Must not be `NULL`.
- * @param err     Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
- * @param err_len Size of `err` in bytes.
- * @return `0` on success, or `-1` on allocation failure.
+ * @param lines Body lines to align. Must not be `NULL`.
+ * @param arena Arena that owns replacement line texts. Must not be `NULL`.
  */
-int doxygen_align_parameters(struct BodyLineList* lines,
-                             struct Arena* arena,
-                             char* err,
-                             size_t err_len) __attribute__((nonnull(1, 2)));
+void doxygen_align_parameters(struct BodyLineList* lines, struct Arena* arena)
+    __attribute__((nonnull(1, 2)));
 
 #endif

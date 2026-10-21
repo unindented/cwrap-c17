@@ -1,76 +1,46 @@
 #include "domain/rewrite.h"
 
-#include "core/error.h"
+#include <assert.h>
+
 #include "domain/comment.h"
 #include "domain/doxygen.h"
 #include "domain/fill.h"
 #include "domain/lex.h"
 #include "shared/arena.h"
-#include "shared/string_buffer.h"
+#include "shared/buf.h"
+#include "shared/str.h"
 
-int rewrite_source(struct StringBuffer* buffer,
-                   const char* source,
-                   size_t source_len,
-                   size_t width,
-                   struct Arena* arena,
-                   char* err,
-                   size_t err_len) {
-  if (width == 0) {
-    return error_report(err, err_len, "wrapping column must be a positive integer");
-  }
+void rewrite_source(struct Buf* buffer, struct Str source, ptrdiff_t width, struct Arena scratch) {
+  assert(width > 0);
 
-  // The lexer requires a non-`NULL` source, which an empty input need not supply.
-  const char* bytes = source == NULL ? "" : source;
-  struct CommentSpanList spans;
-  if (lex_comment_spans(bytes, source_len, arena, &spans, err, err_len) != 0) {
-    return -1;
-  }
+  const struct CommentSpanList spans = lex_comment_spans(source, &scratch);
+  const struct CommentBlockList blocks = comment_group(source, &spans, &scratch);
 
-  struct CommentBlockList blocks;
-  if (comment_group(bytes, source_len, &spans, arena, &blocks, err, err_len) != 0) {
-    return -1;
-  }
-
-  size_t cursor = 0;
-  for (size_t i = 0; i < blocks.count; i++) {
+  ptrdiff_t cursor = 0;
+  for (ptrdiff_t i = 0; i < blocks.count; i++) {
     const struct CommentBlock* block = &blocks.items[i];
     if (block->start > cursor) {
-      if (string_buffer_append_len(buffer, bytes + cursor, block->start - cursor) != 0) {
-        return error_report(err, err_len, "out of memory");
-      }
+      buf_append(buffer, (struct Str){source.data + cursor, block->start - cursor});
     }
 
-    struct BodyLineList lines;
-    if (comment_extract_body(bytes, block, arena, &lines, err, err_len) != 0) {
-      return -1;
-    }
-    if (doxygen_align_parameters(&lines, arena, err, err_len) != 0) {
-      return -1;
-    }
+    // Each block gets its own copy of the scratch arena, so its lines and atoms are reclaimed
+    // before the next block starts.
+    struct Arena block_scratch = scratch;
+    struct BodyLineList lines = comment_extract_body(source, block, &block_scratch);
+    doxygen_align_parameters(&lines, &block_scratch);
     const struct BodyLineList aligned = lines;
-    if (fill_body_lines(&lines, comment_first_prefix_columns(block), comment_prefix_columns(block),
-                        width, block->shape == COMMENT_SHAPE_HANGING, arena, err, err_len) != 0) {
-      return -1;
-    }
+    fill_body_lines(&lines, comment_prefix_columns_first(block), comment_prefix_columns(block),
+                    width, block->shape == COMMENT_SHAPE_HANGING, &block_scratch);
     // A starred body that collapses onto the opener line gains a trailing closer there, so it is
     // filled again with room for that closer.
     if (comment_has_opener_closer(block, &lines)) {
       lines = aligned;
-      if (fill_body_lines(&lines, comment_first_prefix_columns(block),
-                          comment_prefix_columns(block), width, true, arena, err, err_len) != 0) {
-        return -1;
-      }
+      fill_body_lines(&lines, comment_prefix_columns_first(block), comment_prefix_columns(block),
+                      width, true, &block_scratch);
     }
-    if (comment_emit(buffer, bytes, block, &lines) != 0) {
-      return error_report(err, err_len, "out of memory");
-    }
+    comment_emit(buffer, source, block, &lines);
     cursor = block->end;
   }
 
-  if (cursor < source_len) {
-    if (string_buffer_append_len(buffer, bytes + cursor, source_len - cursor) != 0) {
-      return error_report(err, err_len, "out of memory");
-    }
-  }
-  return 0;
+  buf_append(buffer, str_tail(source, cursor));
 }

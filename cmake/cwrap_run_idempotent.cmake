@@ -14,10 +14,13 @@ file(MAKE_DIRECTORY "${CWRAP_SCRATCH_DIR}")
 file(GLOB_RECURSE source_inputs RELATIVE "${CWRAP_SOURCE_DIR}"
      "${CWRAP_SOURCE_DIR}/src/*.c" "${CWRAP_SOURCE_DIR}/src/*.h"
 )
+file(GLOB test_source_inputs RELATIVE "${CWRAP_SOURCE_DIR}"
+     "${CWRAP_SOURCE_DIR}/tests/*.c" "${CWRAP_SOURCE_DIR}/tests/*.h"
+)
 file(GLOB fixture_inputs RELATIVE "${CWRAP_SOURCE_DIR}"
      "${CWRAP_SOURCE_DIR}/tests/fixtures/*.c" "${CWRAP_SOURCE_DIR}/tests/expected/*.c"
 )
-set(inputs ${fixture_inputs} ${source_inputs})
+set(inputs ${fixture_inputs} ${source_inputs} ${test_source_inputs})
 list(SORT inputs)
 
 set(once_file "${CWRAP_SCRATCH_DIR}/once.c")

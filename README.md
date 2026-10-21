@@ -80,7 +80,11 @@ These combinations are invalid:
 - Standard input with `--in-place`.
 - `--check` with `--in-place`.
 
-The tool rejects an input file over 64 MiB before it reads the file. The error message gives the limit and the file size. Standard input has no size limit.
+In the default mode, the tool prints each file in turn and stops at the first input file that is missing, is not a regular file, cannot be read, or holds a `NUL` byte, after printing the files before it, and exits with status 1. With `--in-place`, the tool first checks every input file and reports each bad one; if any input is bad, it writes no file. A write that fails still stops the tool part-way, after the inputs before it were written. `--check` writes nothing in any case, and reports every input in order.
+
+The tool rejects an input file over 64 MiB before it reads the file. The error message gives the limit and the file size. It rejects standard input over 64 MiB once it has read one byte past the limit, and the error message gives the limit.
+
+The tool reserves its memory once, when it starts, in fixed sizes that these limits bound. Reserved memory that the tool does not use costs address space but no memory. Under an address-space limit (`ulimit -v`) that refuses the reservation, the tool halves it until it fits, up to six times, and once more to leave room for the memory it does not reserve, and then holds correspondingly less, apart from the 64 MiB log of its errors, which keeps its full size, so the tool needs a limit of about 360 MB (`ulimit -v 350000`) and under less stops at startup with `failed to run: out of memory`. An input that needs more than the tool reserved, such as a comment whose rewrapped output passes about 4 GiB, makes the tool print the output and the errors found so far and `failed to rewrap file: out of memory ('<path>')`, and exit with status 1.
 
 Run these commands for help:
 
@@ -104,7 +108,7 @@ Run these commands for help:
 
 Vendored dependencies are included under `vendor/`:
 
-- [`sharedstuff`](https://github.com/unindented/sharedstuff-c17): Arena allocation and string buffers.
+- [`sharedstuff`](https://github.com/unindented/sharedstuff-c17): Arena allocation, counted strings, output buffers, and the diagnostic log.
 - [`copt`](https://github.com/fardaniqbal/copt): Command line option parsing.
 - [`acutest`](https://github.com/mity/acutest): Tests.
 
@@ -154,7 +158,7 @@ The binaries are `build/multi/bin/Debug/cwrap` and `build/multi/bin/RelWithDebIn
 
 ### Testing
 
-CTest registers the colocated unit test suite and the end-to-end golden and idempotence test suites.
+CTest registers the unit test suite and the end-to-end golden and idempotence test suites.
 
 #### Debug tests
 

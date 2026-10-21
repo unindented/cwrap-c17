@@ -7,7 +7,11 @@ target_sources(
 )
 
 if(CWRAP_BUILD_TESTING)
-  foreach(module IN ITEMS cli cli_dispatch cmd_wrap wrap_input)
+  foreach(module IN ITEMS cli cli_dispatch)
     cwrap_add_unit_test(${module})
+  endforeach()
+  # A run reads, writes and prints only through `runtime/os.h`, so its tests use the in-memory host.
+  foreach(module IN ITEMS cmd_wrap wrap_input)
+    cwrap_add_unit_test(${module} OS memory)
   endforeach()
 endif()

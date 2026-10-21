@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "shared/str.h"
+
 struct Arena;
 
 /** Kind of C comment the lexer recorded. */
@@ -21,15 +23,15 @@ struct CommentSpan {
   enum CommentKind kind;
 
   /** Byte offset of the opening `//` or slash-star marker. */
-  size_t start;
+  ptrdiff_t start;
 
   /** Byte offset immediately after the last byte of the comment. A line comment ends at the newline
       (exclusive) or at the end of the file, and a backslash line splice carries it past a newline.
       A block comment ends after its closer. */
-  size_t end;
+  ptrdiff_t end;
 
   /** Display column of the first `/` of the opener, measured from the start of its line. */
-  size_t opener_column;
+  ptrdiff_t opener_column;
 
   /** Whether non-whitespace code or the closer of another comment appears on the opener's line
       before the comment. Trailing comments are recorded so a rewriter can copy them unchanged. */
@@ -42,30 +44,22 @@ struct CommentSpanList {
   struct CommentSpan* items;
 
   /** Number of spans in `items`. */
-  size_t count;
+  ptrdiff_t count;
 };
 
 /**
  * @brief Collects every C comment span in `source` into an arena-owned list.
  *
  * Strings and character literals are not comments, including a URL such as `http://x//y` inside
- * quotes. An `#include "..."` path is treated as code, not as a string. Adjacent one-line
- * slash-star comments stay separate spans.
+ * quotes. A quoted `#include` path lexes as a string, and an angle-bracketed one as code, so a
+ * slash-star inside it opens a comment. Adjacent one-line slash-star comments stay separate spans.
  *
- * @param source     Source bytes. Must hold at least `source_len` bytes. Must not be `NULL`.
- * @param source_len Number of bytes in `source`.
- * @param arena      Arena that owns the span array. Must not be `NULL`.
- * @param spans_out  Receives the span list. Written only on success. Must not be `NULL`.
- * @param err        Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
- * @param err_len    Size of `err` in bytes.
- * @return `0` on success, or `-1` on allocation failure.
+ * @param source Source bytes.
+ * @param arena  Arena that owns the span array. Must not be `NULL`.
+ * @return The span list.
  */
-int lex_comment_spans(const char* source,
-                      size_t source_len,
-                      struct Arena* arena,
-                      struct CommentSpanList* spans_out,
-                      char* err,
-                      size_t err_len) __attribute__((nonnull(1, 3, 4)));
+struct CommentSpanList lex_comment_spans(struct Str source, struct Arena* arena)
+    __attribute__((nonnull(2)));
 
 /**
  * @brief Returns the display column after `c` when it starts at `column`.
@@ -78,6 +72,6 @@ int lex_comment_spans(const char* source,
  *               takes no column, and any other byte takes one.
  * @return Display column after `c`.
  */
-size_t lex_advance_column(size_t column, unsigned char c);
+ptrdiff_t lex_advance_column(ptrdiff_t column, unsigned char c);
 
 #endif

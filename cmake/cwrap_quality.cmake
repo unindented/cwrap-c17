@@ -19,12 +19,9 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/app/wrap_input.c"
     "${PROJECT_SOURCE_DIR}/src/app/wrap_input.h"
     "${PROJECT_SOURCE_DIR}/src/core/ascii.h"
-    "${PROJECT_SOURCE_DIR}/src/core/error.c"
-    "${PROJECT_SOURCE_DIR}/src/core/error.h"
     "${PROJECT_SOURCE_DIR}/src/core/parse.c"
     "${PROJECT_SOURCE_DIR}/src/core/parse.h"
     "${PROJECT_SOURCE_DIR}/src/core/test_ascii.c"
-    "${PROJECT_SOURCE_DIR}/src/core/test_error.c"
     "${PROJECT_SOURCE_DIR}/src/core/test_parse.c"
     "${PROJECT_SOURCE_DIR}/src/domain/atom.c"
     "${PROJECT_SOURCE_DIR}/src/domain/atom.h"
@@ -47,10 +44,15 @@ set(cwrap_owned_sources
     "${PROJECT_SOURCE_DIR}/src/domain/unicode_width_data.h"
     "${PROJECT_SOURCE_DIR}/src/runtime/fs.c"
     "${PROJECT_SOURCE_DIR}/src/runtime/fs.h"
-    "${PROJECT_SOURCE_DIR}/src/runtime/stream.c"
-    "${PROJECT_SOURCE_DIR}/src/runtime/stream.h"
+    "${PROJECT_SOURCE_DIR}/src/runtime/memory.c"
+    "${PROJECT_SOURCE_DIR}/src/runtime/memory.h"
+    "${PROJECT_SOURCE_DIR}/src/runtime/os.h"
     "${PROJECT_SOURCE_DIR}/src/runtime/test_fs.c"
-    "${PROJECT_SOURCE_DIR}/src/runtime/test_stream.c"
+    "${PROJECT_SOURCE_DIR}/src/runtime/test_memory.c"
+    "${PROJECT_SOURCE_DIR}/src/runtime/test_os.c"
+    "${PROJECT_SOURCE_DIR}/tests/os_memory.c"
+    "${PROJECT_SOURCE_DIR}/tests/os_memory.h"
+    "${PROJECT_SOURCE_DIR}/tests/test_random.c"
     "${PROJECT_SOURCE_DIR}/tests/test_support.c"
     "${PROJECT_SOURCE_DIR}/tests/test_support.h"
     "${PROJECT_SOURCE_DIR}/tests/test_test_support.c"
@@ -77,11 +79,11 @@ if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   set(cwrap_clang_tidy_command "")
 endif()
 
-# Production and test targets run cppcheck with the same arguments, except that test targets also
-# honor inline suppressions, for the `deallocuse` false positive on a stream that a borrowing callee
-# leaves open.
+# Production and test targets run cppcheck with the same arguments. CMake hands cppcheck only the
+# `-I` include directories, not the `-isystem` ones, so the vendored sharedstuff headers are named
+# explicitly: without them cppcheck cannot expand `STR_FMT` and miscounts `printf` arguments.
 set(cwrap_cppcheck_property
-    "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--quiet"
+    "${cwrap_cppcheck_command};--enable=warning,performance,portability;--std=${cwrap_cppcheck_standard};--error-exitcode=1;--quiet;-I${PROJECT_SOURCE_DIR}/vendor/sharedstuff/include"
 )
 
 function(cwrap_enable_project_analysis target)
@@ -99,7 +101,7 @@ endfunction()
 
 function(cwrap_enable_test_analysis target)
   if(cwrap_cppcheck_command)
-    set_property(TARGET ${target} PROPERTY C_CPPCHECK "${cwrap_cppcheck_property};--inline-suppr")
+    set_property(TARGET ${target} PROPERTY C_CPPCHECK "${cwrap_cppcheck_property}")
   endif()
 endfunction()
 

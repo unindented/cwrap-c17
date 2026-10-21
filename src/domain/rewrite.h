@@ -3,8 +3,10 @@
 
 #include <stddef.h>
 
+#include "shared/str.h"
+
 struct Arena;
-struct StringBuffer;
+struct Buf;
 
 /**
  * @brief Rewrites wrappable comments in `source` into `buffer`, leaving code unchanged.
@@ -12,22 +14,17 @@ struct StringBuffer;
  * Trailing comments after code are copied as-is. Line-comment runs and slash-star blocks are
  * refilled to `width` using STYLE.md atoms, Doxygen alignment, and the block's closer convention.
  *
- * @param buffer     Buffer that receives the rewritten file. Must be initialized and not `NULL`.
- * @param source     Source bytes. Must hold at least `source_len` bytes. May be `NULL` only when
- *                   `source_len` is 0.
- * @param source_len Number of bytes in `source`.
- * @param width      Wrapping column. Must be at least 1.
- * @param arena      Arena that owns temporary spans, blocks, and line texts. Must not be `NULL`.
- * @param err        Receives a diagnostic on failure. May be `NULL` only when `err_len` is 0.
- * @param err_len    Size of `err` in bytes.
- * @return `0` on success, or `-1` when `width` is 0 or on allocation failure.
+ * The comment spans and blocks of the file live in `scratch` for the whole call, and each block
+ * then works in its own copy of what remains, so one block's lines and atoms are reclaimed before
+ * the next. `buffer` grows while those copies allocate, so its arena must not be `scratch`'s
+ * region: the copies would overwrite the bytes it appended.
+ *
+ * @param buffer  Buffer that receives the rewritten file. Must not be `NULL`.
+ * @param source  Source bytes.
+ * @param width   Wrapping column. Must be at least 1.
+ * @param scratch Arena for the spans, blocks, line texts and atoms, released when the call returns.
  */
-int rewrite_source(struct StringBuffer* buffer,
-                   const char* source,
-                   size_t source_len,
-                   size_t width,
-                   struct Arena* arena,
-                   char* err,
-                   size_t err_len) __attribute__((nonnull(1, 5)));
+void rewrite_source(struct Buf* buffer, struct Str source, ptrdiff_t width, struct Arena scratch)
+    __attribute__((nonnull(1)));
 
 #endif

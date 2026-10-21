@@ -1,17 +1,16 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
-#include <signal.h>
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "app/cli.h"
 #include "app/cwrap_version.h"
+#include "runtime/fs.h"
+#include "shared/str.h"
+#include "test_support.h"
 
 /**
  * @brief Parses a terminated argument vector.
@@ -24,8 +23,10 @@ static struct CliOptions parse(char** argv) {
   while (argv[argc] != NULL) {
     argc++;
   }
+  // The message lives in a reservation that is never released, so it outlives this call.
+  struct Arena arena = test_arena();
   struct CliOptions options;
-  cli_parse(&options, argc, argv);
+  cli_parse(&options, argc, argv, &arena);
   return options;
 }
 
@@ -192,7 +193,7 @@ static void test_version_long_flag(void) {
   char* argv[] = {"cwrap", "--version", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 }
 
 // `-V` resolves to the version action.
@@ -223,17 +224,17 @@ static void test_informational_flag_clears_diagnostic(void) {
   char* help_argv[] = {"cwrap", "--frobnicate", "--help", NULL};
   struct CliOptions options = parse(help_argv);
   TEST_CHECK(options.action == CLI_ACTION_HELP);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 
   char* version_argv[] = {"cwrap", "--frobnicate", "--version", NULL};
   options = parse(version_argv);
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 
   char* cluster_argv[] = {"cwrap", "-Vx", NULL};
   options = parse(cluster_argv);
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 }
 
 // A valid `--version` wins in either order next to a rejected `--version=1`. The rejected spelling
@@ -243,12 +244,12 @@ static void test_valid_version_flag_wins_over_rejected_spelling(void) {
   char* valid_first[] = {"cwrap", "--version", "--version=1", NULL};
   struct CliOptions options = parse(valid_first);
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 
   char* rejected_first[] = {"cwrap", "--version=1", "--version", NULL};
   options = parse(rejected_first);
   TEST_CHECK(options.action == CLI_ACTION_VERSION);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 }
 
 // A non-numeric wrapping column is rejected with a diagnostic naming the offending value.
@@ -256,8 +257,8 @@ static void test_invalid_width_rejected(void) {
   char* argv[] = {"cwrap", "--width", "abc", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '--width' must be a positive integer: 'abc'") ==
-             0);
+  TEST_CHECK(
+      str_eq(options.error_message, S("option '--width' must be a positive integer: 'abc'")));
 }
 
 // A wrapping column of zero is rejected, naming the offending value.
@@ -265,8 +266,7 @@ static void test_zero_width_rejected(void) {
   char* argv[] = {"cwrap", "--width", "0", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '--width' must be a positive integer: '0'") ==
-             0);
+  TEST_CHECK(str_eq(options.error_message, S("option '--width' must be a positive integer: '0'")));
 }
 
 // A negative wrapping column in attached form reaches `parse_size`'s sign rejection, and the
@@ -276,44 +276,86 @@ static void test_negative_width_rejected(void) {
   char* argv[] = {"cwrap", "--width=-1", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '--width' must be a positive integer: '-1'") ==
-             0);
+  TEST_CHECK(str_eq(options.error_message, S("option '--width' must be a positive integer: '-1'")));
 }
 
 // A wrapping column above the accepted ceiling is rejected. The value at the ceiling is accepted,
 // so the boundary itself is pinned rather than just the rejection. `WRAP_COLUMN_MAX` is file-local
-// to `cli.c`, so the limit is spelled here as a literal. Changing it must update these two cases
-// and the expected message below.
+// to `cli.c`, so the limit is spelled here and in the next test as a literal. Changing it must
+// update the cases and the expected messages of both.
 static void test_oversize_width_rejected(void) {
   char* argv[] = {"cwrap", "--width", "10001", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message,
-                    "option '--width' exceeds max wrapping column (10000) at 10001") == 0);
+  TEST_CHECK(str_eq(options.error_message,
+                    S("option '--width' exceeds max wrapping column (10000) at 10001")));
 
   char* at_limit[] = {"cwrap", "--width", "10000", "a.c", NULL};
   options = parse(at_limit);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.width == 10000);
-  TEST_CHECK(options.error_message[0] == '\0');
+  TEST_CHECK(options.error_message.len == 0);
 }
 
-// `-w` with no following value is rejected with a diagnostic that it requires a wrapping column,
-// naming the short spelling.
-static void test_missing_width_short_flag(void) {
-  char* argv[] = {"cwrap", "-w", NULL};
-  struct CliOptions options = parse(argv);
+// A wrapping column past `PTRDIFF_MAX` and up to `SIZE_MAX` is over the ceiling like any other, and
+// the message quotes it as typed, as it reads; one past `SIZE_MAX` is not a number `parse_size`
+// takes, so it is not a positive integer. The message drops a leading zero, from a saturated value
+// too. The values are derived from the two maxima, so the cases hold on a 32-bit target.
+static void test_width_past_ptrdiff_max_rejected(void) {
+  char values[3][32];
+  int value_lens[3];
+  value_lens[0] = snprintf(values[0], sizeof(values[0]), "%td", PTRDIFF_MAX);
+  value_lens[1] = snprintf(values[1], sizeof(values[1]), "%zu", SIZE_MAX);
+  value_lens[2] = snprintf(values[2], sizeof(values[2]), "%zu", SIZE_MAX);
+  for (ptrdiff_t i = 0; i < 3; i++) {
+    TEST_ASSERT(value_lens[i] > 0 && value_lens[i] < (int)sizeof(values[i]));
+  }
+  // The last digit of `PTRDIFF_MAX` is 7 on every two's-complement target, so 8 is one past it, and
+  // the last digit of `SIZE_MAX` is 5, so 6 is one past that.
+  values[0][value_lens[0] - 1] = '8';
+  values[2][value_lens[2] - 1] = '6';
+  for (ptrdiff_t i = 0; i < 3; i++) {
+    char* argv[] = {"cwrap", "--width", values[i], "a.c", NULL};
+    struct CliOptions options = parse(argv);
+    TEST_CHECK(options.action == CLI_ACTION_ERROR);
+    if (i < 2) {
+      TEST_CHECK(test_text_is(options.error_message,
+                              "option '--width' exceeds max wrapping column (10000) at %s",
+                              values[i]));
+    } else {
+      TEST_CHECK(test_text_is(options.error_message,
+                              "option '--width' must be a positive integer: '%s'", values[i]));
+    }
+    TEST_MSG("case %td", i);
+  }
+
+  char* leading_zero[] = {"cwrap", "--width", "010001", "a.c", NULL};
+  struct CliOptions options = parse(leading_zero);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '-w' requires a wrapping column") == 0);
+  TEST_CHECK(str_eq(options.error_message,
+                    S("option '--width' exceeds max wrapping column (10000) at 10001")));
+
+  char padded[40];
+  TEST_ASSERT(snprintf(padded, sizeof(padded), "00%s", values[0]) > 0);
+  char* saturated_leading_zero[] = {"cwrap", "--width", padded, "a.c", NULL};
+  options = parse(saturated_leading_zero);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(test_text_is(options.error_message,
+                          "option '--width' exceeds max wrapping column (10000) at %s", values[0]));
 }
 
-// `--width` with no following value is rejected with a diagnostic that it requires a wrapping
-// column, naming the long spelling.
-static void test_missing_width_long_flag(void) {
-  char* argv[] = {"cwrap", "--width", NULL};
-  struct CliOptions options = parse(argv);
+// `-w` or `--width` with no following value is rejected with a diagnostic that it requires a
+// wrapping column. Both spellings name the option `--width`, as its other diagnostics do.
+static void test_missing_width_rejected(void) {
+  char* short_argv[] = {"cwrap", "-w", NULL};
+  struct CliOptions options = parse(short_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option '--width' requires a wrapping column") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option '--width' requires a wrapping column")));
+
+  char* long_argv[] = {"cwrap", "--width", NULL};
+  options = parse(long_argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(str_eq(options.error_message, S("option '--width' requires a wrapping column")));
 }
 
 // A flag that takes no value rejects an attached `=value` and names the complete token. copt
@@ -326,23 +368,23 @@ static void test_attached_value_rejected_on_valueless_flags(void) {
   struct CliOptions options = parse(check_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(!options.is_check);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--check=0'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '--check=0'")));
 
   char* in_place_argv[] = {"cwrap", "--in-place=0", "a.c", NULL};
   options = parse(in_place_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(!options.is_in_place);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--in-place=0'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '--in-place=0'")));
 
   char* help_argv[] = {"cwrap", "--help=nope", NULL};
   options = parse(help_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--help=nope'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '--help=nope'")));
 
   char* version_argv[] = {"cwrap", "--version=nope", NULL};
   options = parse(version_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '--version=nope'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '--version=nope'")));
 }
 
 // The short form of each valueless flag rejects an attached value and names the complete element.
@@ -354,23 +396,23 @@ static void test_attached_value_rejected_on_valueless_short_flags(void) {
   struct CliOptions options = parse(check_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(!options.is_check);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-c=0'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-c=0'")));
 
   char* in_place_argv[] = {"cwrap", "-i=0", "a.c", NULL};
   options = parse(in_place_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(!options.is_in_place);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-i=0'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-i=0'")));
 
   char* help_argv[] = {"cwrap", "-h=1", NULL};
   options = parse(help_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-h=1'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-h=1'")));
 
   char* version_argv[] = {"cwrap", "-V=1", NULL};
   options = parse(version_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-V=1'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-V=1'")));
 }
 
 // A rejected attached value ends its short cluster, so the letters after the `=` are not read as
@@ -381,12 +423,12 @@ static void test_attached_value_rejection_ends_short_cluster(void) {
   struct CliOptions options = parse(version_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(!options.is_check);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-c=V'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-c=V'")));
 
   char* help_argv[] = {"cwrap", "-c=h", "a.c", NULL};
   options = parse(help_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "option does not take a value: '-c=h'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("option does not take a value: '-c=h'")));
 }
 
 // An unrecognized short option is rejected with a diagnostic naming the option.
@@ -394,7 +436,7 @@ static void test_unknown_short_option(void) {
   char* argv[] = {"cwrap", "-x", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "unknown option '-x'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("unknown option '-x'")));
 }
 
 // A value attached to an unknown short option ends its cluster, so the `V` in `-x=V` does not
@@ -403,7 +445,7 @@ static void test_unknown_short_option_value_ends_cluster(void) {
   char* argv[] = {"cwrap", "-x=V", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "unknown option '-x'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("unknown option '-x'")));
 }
 
 // An unrecognized long option is rejected with a diagnostic naming the option.
@@ -411,7 +453,7 @@ static void test_unknown_long_option(void) {
   char* argv[] = {"cwrap", "--frobnicate", "a.c", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "unknown option '--frobnicate'") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("unknown option '--frobnicate'")));
 }
 
 // Standard input is a single-input mode, so it cannot be mixed with paths or repeated.
@@ -419,13 +461,13 @@ static void test_stdin_cannot_be_combined(void) {
   char* mixed_argv[] = {"cwrap", "a.c", "-", NULL};
   struct CliOptions options = parse(mixed_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input cannot be combined with file inputs") ==
-             0);
+  TEST_CHECK(
+      str_eq(options.error_message, S("standard input cannot be combined with file inputs")));
 
   char* repeated_argv[] = {"cwrap", "-", "-", NULL};
   options = parse(repeated_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
-  TEST_CHECK(strcmp(options.error_message, "standard input may be specified only once") == 0);
+  TEST_CHECK(str_eq(options.error_message, S("standard input may be specified only once")));
 }
 
 // `--in-place` and `--check` cannot be combined.
@@ -434,7 +476,7 @@ static void test_check_and_in_place_conflict(void) {
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(
-      strcmp(options.error_message, "options '--check' and '--in-place' cannot be combined") == 0);
+      str_eq(options.error_message, S("options '--check' and '--in-place' cannot be combined")));
 }
 
 // In-place output needs a path and is rejected for implicit and explicit standard input.
@@ -443,92 +485,57 @@ static void test_in_place_rejects_stdin(void) {
   struct CliOptions options = parse(implicit_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+      str_eq(options.error_message, S("option '--in-place' cannot be used with standard input")));
 
   char* explicit_argv[] = {"cwrap", "--in-place", "-", NULL};
   options = parse(explicit_argv);
   TEST_CHECK(options.action == CLI_ACTION_ERROR);
   TEST_CHECK(
-      strcmp(options.error_message, "option '--in-place' cannot be used with standard input") == 0);
+      str_eq(options.error_message, S("option '--in-place' cannot be used with standard input")));
 }
 
 // The generated version accessor returns a non-empty version.
 static void test_version_accessor_present(void) {
-  TEST_CHECK(cwrap_version_string()[0] != '\0');
+  TEST_CHECK(cwrap_version_string().len > 0);
 }
 
-// `cli_print_version` writes exactly one `cwrap <version>` line and nothing else.
+// `cli_print_version` writes exactly one `cwrap <version>` line to standard output and nothing
+// else.
 static void test_print_version_writes_version_line(void) {
-  char* buf = NULL;
-  size_t len = 0;
-  FILE* stream = open_memstream(&buf, &len);
-  TEST_ASSERT(stream != NULL);
-  if (stream == NULL) {
+  char text[64];
+  struct StreamCapture capture;
+  if (capture_begin(stdout, &capture) != 0) {
     return;
   }
-  TEST_CHECK(cli_print_version(stream) == 0);
-  const int rc = fclose(stream);
-  TEST_ASSERT(rc == 0);
+  const int rc = cli_print_version(os_posix(), test_arena());
+  const bool is_captured = capture_end(&capture, text, sizeof(text)) == 0;
+  TEST_CHECK(rc == 0);
+  if (!TEST_CHECK(is_captured)) {
+    return;
+  }
 
+  const struct Str version = cwrap_version_string();
   char expected[64];
-  const int expected_len =
-      snprintf(expected, sizeof(expected), "cwrap %s\n", cwrap_version_string());
+  const int expected_len = snprintf(expected, sizeof(expected), "cwrap %.*s\n", STR_FMT(version));
   TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(buf, expected) == 0);
-  TEST_CHECK(len == strlen(expected));
-  free(buf);
+  TEST_CHECK(strcmp(text, expected) == 0);
 }
 
-// A stream that latched a write error makes `cli_print_version` report `-1` with `errno` set, which
-// lets `cli_dispatch` name a reason rather than exiting silently. The reason is `EIO` rather than
-// the underlying `EBADF`. A latched error's own `errno` may have been overwritten by the time it is
-// noticed, so the contract substitutes a generic I/O failure instead of relaying a stale value. A
-// read-mode stream is the deterministic way to reach that branch, because the write fails at the
-// `fprintf` while `fflush` itself succeeds.
+// A standard output that refuses the write makes `cli_print_version` report `-1` with the write's
+// own `errno`, which lets `cli_dispatch` name a reason rather than exiting silently. A read-only
+// descriptor in place of standard output is the deterministic way there: every write to it fails
+// with `EBADF`.
 static void test_print_version_reports_write_failure(void) {
-  FILE* stream = fopen("/dev/null", "r");
-  TEST_ASSERT(stream != NULL);
-  if (stream == NULL) {
+  struct StreamCapture capture;
+  if (capture_begin_unwritable(stdout, &capture) != 0) {
     return;
   }
   errno = 0;
-  TEST_CHECK(cli_print_version(stream) == -1);
-  TEST_CHECK(errno == EIO);
-  const int close_rc = fclose(stream);
-  TEST_CHECK(close_rc == 0);
-}
-
-// When `fflush` itself fails, the write's own `errno` survives instead of being replaced by the
-// `EIO` the latched-error branch substitutes. That distinction is why `cli_dispatch` reports a
-// reason rather than only an exit code. A closed pipe and a full disk need different responses. The
-// test above reaches the `ferror` branch, where the write already failed at `fprintf` and `fflush`
-// succeeds. This one reaches the other branch. A pipe with its read end closed is the deterministic
-// way there, with `SIGPIPE` ignored so the process survives to return.
-static void test_print_version_reports_flush_failure_errno(void) {
-  void (*previous)(int) = signal(SIGPIPE, SIG_IGN);
-  int fds[2];
-  TEST_ASSERT(pipe(fds) == 0);
-  TEST_ASSERT(close(fds[0]) == 0);
-  FILE* stream = fdopen(fds[1], "w");
-  TEST_ASSERT(stream != NULL);
-  if (stream == NULL) {
-    (void)close(fds[1]);
-    (void)signal(SIGPIPE, previous);
-    return;
-  }
-
-  errno = 0;
-  const int rc = cli_print_version(stream);
-  const int reported = errno;
-  // Once a flush has failed, libc implementations differ on whether `fclose` reports the stream's
-  // existing error or succeeds because no buffered output remains. Either result closes it.
-  (void)fclose(stream);
-  (void)signal(SIGPIPE, previous);
-
+  const int rc = cli_print_version(os_posix(), test_arena());
+  const int print_errno = errno;
+  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
   TEST_CHECK(rc == -1);
-  // This is `EPIPE`, not the `EIO` substitute. `fflush` observed the failure, so its `errno` is
-  // current and passes through untouched.
-  TEST_CHECK(reported == EPIPE);
+  TEST_CHECK(print_errno == EBADF);
 }
 
 // `cli_print_usage` substitutes the caller's program name into the usage line, alongside the option
@@ -538,36 +545,36 @@ static void test_print_version_reports_flush_failure_errno(void) {
 // has to see that path back. The full help text is prose and is deliberately not asserted whole.
 // The usage line is the part callers copy.
 static void test_print_usage_names_program(void) {
-  char* buf = NULL;
-  size_t len = 0;
-  FILE* stream = open_memstream(&buf, &len);
-  TEST_ASSERT(stream != NULL);
-  if (stream == NULL) {
+  char text[4096];
+  struct StreamCapture capture;
+  if (capture_begin(stdout, &capture) != 0) {
     return;
   }
-  TEST_CHECK(cli_print_usage(stream, "/opt/bin/mycwrap") == 0);
-  const int rc = fclose(stream);
-  TEST_ASSERT(rc == 0);
-  TEST_CHECK(strstr(buf, "    /opt/bin/mycwrap [options] [<file>...]\n") != NULL);
-  TEST_CHECK(strstr(buf, "If no file is given, or the file is '-', read standard input.\n") !=
+  const int rc = cli_print_usage(S("/opt/bin/mycwrap"), os_posix(), test_arena());
+  const bool is_captured = capture_end(&capture, text, sizeof(text)) == 0;
+  TEST_CHECK(rc == 0);
+  if (!TEST_CHECK(is_captured)) {
+    return;
+  }
+  TEST_CHECK(strstr(text, "    /opt/bin/mycwrap [options] [<file>...]\n") != NULL);
+  TEST_CHECK(strstr(text, "If no file is given, or the file is '-', read standard input.\n") !=
              NULL);
-  TEST_CHECK(strstr(buf, "-w, --width N") != NULL);
-  free(buf);
+  TEST_CHECK(strstr(text, "-w, --width N") != NULL);
 }
 
 // `cli_print_usage` reports a failed write the same way, so neither informational action can exit
 // non-zero without a reason.
 static void test_print_usage_reports_write_failure(void) {
-  FILE* stream = fopen("/dev/null", "r");
-  TEST_ASSERT(stream != NULL);
-  if (stream == NULL) {
+  struct StreamCapture capture;
+  if (capture_begin_unwritable(stdout, &capture) != 0) {
     return;
   }
   errno = 0;
-  TEST_CHECK(cli_print_usage(stream, "cwrap") == -1);
-  TEST_CHECK(errno == EIO);
-  const int close_rc = fclose(stream);
-  TEST_CHECK(close_rc == 0);
+  const int rc = cli_print_usage(S("cwrap"), os_posix(), test_arena());
+  const int print_errno = errno;
+  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
+  TEST_CHECK(rc == -1);
+  TEST_CHECK(print_errno == EBADF);
 }
 
 TEST_LIST = {
@@ -598,8 +605,8 @@ TEST_LIST = {
     {"zero width rejected", test_zero_width_rejected},
     {"negative width rejected", test_negative_width_rejected},
     {"oversize width rejected", test_oversize_width_rejected},
-    {"missing width short flag", test_missing_width_short_flag},
-    {"missing width long flag", test_missing_width_long_flag},
+    {"width past ptrdiff max rejected", test_width_past_ptrdiff_max_rejected},
+    {"missing width rejected", test_missing_width_rejected},
     {"attached value rejected on valueless flags", test_attached_value_rejected_on_valueless_flags},
     {"attached value rejected on valueless short flags",
      test_attached_value_rejected_on_valueless_short_flags},
@@ -614,7 +621,6 @@ TEST_LIST = {
     {"version accessor present", test_version_accessor_present},
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
-    {"print version reports flush failure errno", test_print_version_reports_flush_failure_errno},
     {"print usage names program", test_print_usage_names_program},
     {"print usage reports write failure", test_print_usage_reports_write_failure},
     {NULL, NULL},

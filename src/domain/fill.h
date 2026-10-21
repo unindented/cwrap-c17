@@ -21,23 +21,17 @@ struct BodyLineList;
  * for the closer that trails it.
  *
  * @param lines                Body lines to refill in place. Must not be `NULL`.
- * @param first_prefix_columns Display columns before the first body line.
+ * @param prefix_columns_first Display columns before the first body line.
  * @param prefix_columns       Display columns occupied by each continuation prefix.
- * @param width                Wrapping column, inclusive.
+ * @param width                Wrapping column, inclusive. Must be at least 1.
  * @param has_trailing_closer  Whether to reserve a closer that trails the last body line.
  * @param arena                Arena that owns replacement line texts. Must not be `NULL`.
- * @param err                  Receives a diagnostic on failure. May be `NULL` only when `err_len`
- *                             is 0.
- * @param err_len              Size of `err` in bytes.
- * @return `0` on success, or `-1` on allocation failure.
  */
-int fill_body_lines(struct BodyLineList* lines,
-                    size_t first_prefix_columns,
-                    size_t prefix_columns,
-                    size_t width,
-                    bool has_trailing_closer,
-                    struct Arena* arena,
-                    char* err,
-                    size_t err_len) __attribute__((nonnull(1, 6)));
+void fill_body_lines(struct BodyLineList* lines,
+                     ptrdiff_t prefix_columns_first,
+                     ptrdiff_t prefix_columns,
+                     ptrdiff_t width,
+                     bool has_trailing_closer,
+                     struct Arena* arena) __attribute__((nonnull(1, 6)));
 
 #endif

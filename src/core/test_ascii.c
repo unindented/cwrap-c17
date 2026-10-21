@@ -2,11 +2,11 @@
 
 #include "core/ascii.h"
 
-// `ascii_is_digit` answers for `[0-9]` and nothing else, asserted at both edges. Only `parse_size`
-// re-checks the byte afterwards by handing it to `strtoull`. The other callers do not: widening the
-// set would change which spans `quantity_unit_len` treats as a quantity, which bytes `is_hex` lets
-// into a byte run, and which payload lines `comment_is_list_line` treats as a numbered marker, all
-// of which are golden-fixture behavior.
+// `ascii_is_digit` answers for `[0-9]` and nothing else, asserted at both edges. No caller
+// re-checks the byte afterwards: widening the set would change which values `parse_size` accepts,
+// which spans `quantity_unit_len` treats as a quantity, which bytes `is_hex` lets into a byte run,
+// and which payload lines `comment_is_list_line` treats as a numbered marker, the last three of
+// which are golden-fixture behavior.
 static void test_is_digit_accepts_only_ascii_digits(void) {
   TEST_CHECK(ascii_is_digit('0'));
   TEST_CHECK(ascii_is_digit('5'));
