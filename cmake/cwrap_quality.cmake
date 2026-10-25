@@ -60,6 +60,7 @@ set(cwrap_owned_sources
 set(cwrap_configured_c_source "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.c.in")
 
 find_program(CWRAP_CLANG_FORMAT NAMES clang-format-22 clang-format)
+find_program(CWRAP_CWRAP NAMES cwrap)
 find_program(CWRAP_CLANG_TIDY NAMES clang-tidy-22 clang-tidy)
 find_program(CWRAP_CPPCHECK NAMES cppcheck)
 
@@ -105,26 +106,43 @@ function(cwrap_enable_test_analysis target)
   endif()
 endfunction()
 
+# The format and lint targets run clang-format and then cwrap, which refills comment prose to 100
+# columns, the limit that clang-format only caps. A tool that is not installed is skipped.
 if(CWRAP_CLANG_FORMAT)
-  add_custom_target(
-    cwrap_format
-    COMMAND "${CWRAP_CLANG_FORMAT}" -i ${cwrap_owned_sources}
-    COMMAND
-      "${CWRAP_CLANG_FORMAT}" -i --assume-filename=cwrap_version.c
-      "${cwrap_configured_c_source}"
-    COMMENT "Formatting first-party sources"
-    COMMAND_EXPAND_LISTS VERBATIM
+  set(cwrap_clang_format_fix
+      COMMAND "${CWRAP_CLANG_FORMAT}" -i ${cwrap_owned_sources}
+      COMMAND "${CWRAP_CLANG_FORMAT}" -i --assume-filename=cwrap_version.c
+              "${cwrap_configured_c_source}"
   )
-  add_custom_target(
-    cwrap_lint
-    COMMAND "${CWRAP_CLANG_FORMAT}" --dry-run --Werror ${cwrap_owned_sources}
-    COMMAND
-      "${CWRAP_CLANG_FORMAT}" --dry-run --Werror --assume-filename=cwrap_version.c
-      "${cwrap_configured_c_source}"
-    COMMENT "Checking first-party source formatting"
-    COMMAND_EXPAND_LISTS VERBATIM
+  set(cwrap_clang_format_check
+      COMMAND "${CWRAP_CLANG_FORMAT}" --dry-run --Werror ${cwrap_owned_sources}
+      COMMAND "${CWRAP_CLANG_FORMAT}" --dry-run --Werror --assume-filename=cwrap_version.c
+              "${cwrap_configured_c_source}"
   )
 else()
-  add_custom_target(cwrap_format COMMAND "${CMAKE_COMMAND}" -E echo "clang-format not found; skipping")
-  add_custom_target(cwrap_lint COMMAND "${CMAKE_COMMAND}" -E echo "clang-format not found; skipping")
+  set(cwrap_clang_format_fix COMMAND "${CMAKE_COMMAND}" -E echo "clang-format not found, skipping")
+  set(cwrap_clang_format_check ${cwrap_clang_format_fix})
 endif()
+
+if(CWRAP_CWRAP)
+  set(cwrap_cwrap_fix
+      COMMAND "${CWRAP_CWRAP}" -i ${cwrap_owned_sources} "${cwrap_configured_c_source}"
+  )
+  set(cwrap_cwrap_check
+      COMMAND "${CWRAP_CWRAP}" --check ${cwrap_owned_sources} "${cwrap_configured_c_source}"
+  )
+else()
+  set(cwrap_cwrap_fix COMMAND "${CMAKE_COMMAND}" -E echo "cwrap not found, skipping")
+  set(cwrap_cwrap_check ${cwrap_cwrap_fix})
+endif()
+
+add_custom_target(
+  cwrap_format ${cwrap_clang_format_fix} ${cwrap_cwrap_fix}
+  COMMENT "Formatting first-party sources"
+  COMMAND_EXPAND_LISTS VERBATIM
+)
+add_custom_target(
+  cwrap_lint ${cwrap_clang_format_check} ${cwrap_cwrap_check}
+  COMMENT "Checking first-party source formatting"
+  COMMAND_EXPAND_LISTS VERBATIM
+)
