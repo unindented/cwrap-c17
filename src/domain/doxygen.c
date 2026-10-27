@@ -9,6 +9,11 @@
 #include "shared/arena.h"
 #include "shared/str.h"
 
+/** Commands that document a name, whose descriptions align with their siblings'. */
+static const struct Str named_commands[] = {STR_INIT("param"), STR_INIT("retval")};
+
+enum { NAMED_COMMAND_COUNT = sizeof(named_commands) / sizeof(named_commands[0]) };
+
 /**
  * @brief Returns the byte length of an option such as `[in]` or `{.c}` at `text.data[index]`.
  *
@@ -20,21 +25,22 @@
 static ptrdiff_t option_len(struct Str text, ptrdiff_t index);
 
 /**
- * @brief Reports whether `tag` documents a name whose description aligns with its siblings.
+ * @brief Returns the index of `command` in `named_commands`, or -1 when it documents no name.
  *
- * @param tag Parsed tag. Must not be `NULL`.
- * @return `true` for a `param` or `retval` command, or `false` otherwise.
+ * @param command Command word after the marker.
+ * @return Index into `named_commands`, or -1.
  */
-static bool is_named_command(const struct DoxygenTag* tag) __attribute__((nonnull(1)));
+static ptrdiff_t named_command_index(struct Str command);
 
 /**
- * @brief Returns the widest name among the tags in `lines` that share the command of `tag`.
+ * @brief Parses `line` as a tag that documents a name.
  *
- * @param lines Body lines to scan. Must not be `NULL`.
- * @param tag   Named tag whose command selects the siblings. Must not be `NULL`.
- * @return Display columns of the widest sibling name.
+ * @param line    Body line. Must not be `NULL`.
+ * @param tag_out Receives the parsed tag. Must not be `NULL`.
+ * @return Index of the tag's command in `named_commands`, or -1 when `line` is not a tag with a
+ *         name.
  */
-static ptrdiff_t name_columns_max(const struct BodyLineList* lines, const struct DoxygenTag* tag)
+static ptrdiff_t named_tag_index(const struct BodyLine* line, struct DoxygenTag* tag_out)
     __attribute__((nonnull(1, 2)));
 
 /**
@@ -90,11 +96,9 @@ bool doxygen_has_tag(struct Str text, struct DoxygenTag* tag_out) {
     offset++;
   }
 
-  if (is_named_command(&tag) && offset < text.len) {
+  if (named_command_index(tag.command) >= 0 && offset < text.len) {
     const ptrdiff_t name_start = offset;
-    while (offset < text.len && !is_tag_space(bytes[offset])) {
-      offset++;
-    }
+    offset += atom_len(text, offset);
     tag.name = (struct Str){bytes + name_start, offset - name_start};
     while (offset < text.len && is_tag_space(bytes[offset])) {
       offset++;
@@ -106,22 +110,24 @@ bool doxygen_has_tag(struct Str text, struct DoxygenTag* tag_out) {
 }
 
 void doxygen_align_parameters(struct BodyLineList* lines, struct Arena* arena) {
-  // Aligning a line keeps its name, so the widest name among one command's lines does not change
-  // while they are aligned. It is measured again only when the command changes, not for each line.
-  struct Str command = {0};
-  ptrdiff_t columns_max = 0;
+  // Aligning a line keeps its name, so each command's widest name is measured once, before any line
+  // is aligned.
+  ptrdiff_t columns_max[NAMED_COMMAND_COUNT] = {0};
   for (ptrdiff_t i = 0; i < lines->count; i++) {
-    struct BodyLine* line = &lines->items[i];
     struct DoxygenTag tag;
-    if (line->kind != BODY_LINE_TAG || !doxygen_has_tag(line->text, &tag) || tag.name.len == 0) {
+    const ptrdiff_t k = named_tag_index(&lines->items[i], &tag);
+    if (k >= 0 && atom_column_width(tag.name) > columns_max[k]) {
+      columns_max[k] = atom_column_width(tag.name);
+    }
+  }
+  for (ptrdiff_t i = 0; i < lines->count; i++) {
+    struct DoxygenTag tag;
+    const ptrdiff_t k = named_tag_index(&lines->items[i], &tag);
+    if (k < 0) {
       continue;
     }
-    if (!str_eq(tag.command, command)) {
-      command = tag.command;
-      columns_max = name_columns_max(lines, &tag);
-    }
     const bool is_continued = i + 1 < lines->count && lines->items[i + 1].kind == BODY_LINE_PROSE;
-    align_named_line(line, &tag, columns_max, is_continued, arena);
+    align_named_line(&lines->items[i], &tag, columns_max[k], is_continued, arena);
   }
 }
 
@@ -138,31 +144,21 @@ static ptrdiff_t option_len(struct Str text, ptrdiff_t index) {
   return 0;
 }
 
-static bool is_named_command(const struct DoxygenTag* tag) {
-  static const struct Str named_commands[] = {STR_INIT("param"), STR_INIT("retval")};
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(named_commands) / sizeof(named_commands[0])); i++) {
-    if (str_eq(tag->command, named_commands[i])) {
-      return true;
+static ptrdiff_t named_command_index(struct Str command) {
+  for (ptrdiff_t i = 0; i < NAMED_COMMAND_COUNT; i++) {
+    if (str_eq(command, named_commands[i])) {
+      return i;
     }
   }
-  return false;
+  return -1;
 }
 
-static ptrdiff_t name_columns_max(const struct BodyLineList* lines, const struct DoxygenTag* tag) {
-  ptrdiff_t columns_max = 0;
-  for (ptrdiff_t i = 0; i < lines->count; i++) {
-    const struct BodyLine* line = &lines->items[i];
-    struct DoxygenTag sibling;
-    if (line->kind != BODY_LINE_TAG || !doxygen_has_tag(line->text, &sibling) ||
-        sibling.name.len == 0 || !str_eq(sibling.command, tag->command)) {
-      continue;
-    }
-    const ptrdiff_t columns = atom_column_width(sibling.name);
-    if (columns > columns_max) {
-      columns_max = columns;
-    }
+static ptrdiff_t named_tag_index(const struct BodyLine* line, struct DoxygenTag* tag_out) {
+  if (line->kind != BODY_LINE_TAG || !doxygen_has_tag(line->text, tag_out) ||
+      tag_out->name.len == 0) {
+    return -1;
   }
-  return columns_max;
+  return named_command_index(tag_out->command);
 }
 
 static void align_named_line(struct BodyLine* line,

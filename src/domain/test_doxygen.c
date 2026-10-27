@@ -31,6 +31,26 @@ static void test_parses_any_command_word(void) {
   }
 }
 
+// A name is the atom that starts it, so a backtick span with a space in it, a hex run, or a
+// quantity is one name, and the description starts after it.
+static void test_parses_atom_as_name(void) {
+  static const struct {
+    struct Str text;
+    struct Str name;
+  } cases[] = {
+      {STR_INIT("@param `a b` the value."), STR_INIT("`a b`")},
+      {STR_INIT("@retval FD 10 x"), STR_INIT("FD 10")},
+      {STR_INIT("@param 5 ms delay"), STR_INIT("5 ms")},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct DoxygenTag tag;
+    TEST_CHECK(doxygen_has_tag(cases[i].text, &tag));
+    TEST_CHECK(str_eq(tag.name, cases[i].name));
+    TEST_MSG("name %td: expected '%.*s'", i, STR_FMT(cases[i].name));
+    TEST_CHECK(tag.description_offset == tag.name.data + tag.name.len + 1 - cases[i].text.data);
+  }
+}
+
 // A tag is parsed only from the bytes of its view: an option the view cuts short is unclosed, and a
 // name the view ends before is not there.
 static void test_parses_tag_within_view_only(void) {
@@ -159,6 +179,7 @@ static void test_rejects_non_command_words(void) {
 TEST_LIST = {
     {"parses named tag", test_parses_named_tag},
     {"parses any command word", test_parses_any_command_word},
+    {"parses atom as name", test_parses_atom_as_name},
     {"parses tag within view only", test_parses_tag_within_view_only},
     {"aligns parameter descriptions", test_aligns_parameter_descriptions},
     {"aligns direction qualified parameters", test_aligns_direction_qualified_parameters},

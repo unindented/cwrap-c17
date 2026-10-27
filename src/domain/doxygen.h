@@ -29,7 +29,8 @@ struct DoxygenTag {
  *
  * A command is `@` or `\` followed by ASCII letters and an optional `[...]` or `{...}` option with
  * no whitespace inside, such as `@param[in]` or `\code{.c}`. Whitespace or the end of `text` must
- * follow it. A `param` or `retval` command also takes the next word as the name it documents.
+ * follow it. A `param` or `retval` command also takes the next atom as the name it documents, so a
+ * backtick span, hex run, or quantity is one name.
  *
  * @param text    Payload bytes.
  * @param tag_out Receives the parsed command when one is present. Must not be `NULL`.

@@ -52,4 +52,13 @@ ptrdiff_t atom_column_width(struct Str text);
  */
 struct AtomList atom_split(struct Str text, struct Arena* arena) __attribute__((nonnull(2)));
 
+/**
+ * @brief Returns the length of the atom that starts at `index`, as `atom_split` splits it.
+ *
+ * @param text  Payload bytes.
+ * @param index Start of the atom. Must be less than `text.len`.
+ * @return Atom length in bytes.
+ */
+ptrdiff_t atom_len(struct Str text, ptrdiff_t index);
+
 #endif

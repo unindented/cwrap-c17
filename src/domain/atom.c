@@ -89,26 +89,17 @@ static ptrdiff_t quantity_unit_len(struct Str text, ptrdiff_t index);
 static bool is_quantity_unit(struct Str text);
 
 /**
- * @brief Extends `atom_len` through any immediately following non-whitespace.
+ * @brief Extends `head_len` through any immediately following non-whitespace.
  *
  * A possessive `'s`, a trailing `.` or `,`, and a hyphenated suffix such as `-aligned` stay on the
  * atom. Fill joins atoms with a space, so leaving glued text for a later word would invent a break.
  *
  * @param text     Payload bytes.
  * @param index    Start of the atom.
- * @param atom_len Current atom length.
+ * @param head_len Length of the atom's start, such as a hex run, or 0.
  * @return Extended length.
  */
-static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t atom_len);
-
-/**
- * @brief Returns the complete atom length at `index`.
- *
- * @param text  Payload bytes.
- * @param index Start of the atom. Must be less than `text.len`.
- * @return Atom length in bytes.
- */
-static ptrdiff_t atom_split_len(struct Str text, ptrdiff_t index);
+static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t head_len);
 
 ptrdiff_t atom_column_width(struct Str text) {
   ptrdiff_t columns = 0;
@@ -131,7 +122,7 @@ struct AtomList atom_split(struct Str text, struct Arena* arena) {
       continue;
     }
     count++;
-    const ptrdiff_t len = atom_split_len(text, i);
+    const ptrdiff_t len = atom_len(text, i);
     i += len;
   }
 
@@ -145,7 +136,7 @@ struct AtomList atom_split(struct Str text, struct Arena* arena) {
         i++;
         continue;
       }
-      const ptrdiff_t len = atom_split_len(text, i);
+      const ptrdiff_t len = atom_len(text, i);
       items[n].text = (struct Str){text.data + i, len};
       items[n].columns = atom_column_width(items[n].text);
       n++;
@@ -154,6 +145,17 @@ struct AtomList atom_split(struct Str text, struct Arena* arena) {
   }
 
   return (struct AtomList){.items = items, .count = count};
+}
+
+ptrdiff_t atom_len(struct Str text, ptrdiff_t index) {
+  ptrdiff_t len = backtick_span_len(text, index);
+  if (len == 0) {
+    len = hex_run_len(text, index);
+  }
+  if (len == 0) {
+    len = quantity_unit_len(text, index);
+  }
+  return attach_trailer(text, index, len);
 }
 
 static ptrdiff_t utf8_next(struct Str text, ptrdiff_t index, uint32_t* codepoint_out) {
@@ -324,21 +326,10 @@ static bool is_quantity_unit(struct Str text) {
   return false;
 }
 
-static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t atom_len) {
-  ptrdiff_t end = index + atom_len;
+static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t head_len) {
+  ptrdiff_t end = index + head_len;
   while (end < text.len && text.data[end] != ' ' && text.data[end] != '\t') {
     end++;
   }
   return end - index;
-}
-
-static ptrdiff_t atom_split_len(struct Str text, ptrdiff_t index) {
-  ptrdiff_t len = backtick_span_len(text, index);
-  if (len == 0) {
-    len = hex_run_len(text, index);
-  }
-  if (len == 0) {
-    len = quantity_unit_len(text, index);
-  }
-  return attach_trailer(text, index, len);
 }

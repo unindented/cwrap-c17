@@ -174,6 +174,17 @@ static void test_aligns_direction_parameters_end_to_end(void) {
   TEST_CHECK(str_eq(out, str_from_cstr(expected)));
 }
 
+// A tag name in a backtick span with a space in it, or a hex run, is one name, written once with
+// its description aligned and hanging after it.
+static void test_tag_name_atom_written_once(void) {
+  const char* source =
+      "/// @param `a b` the value.\n/// @param `cd`  the other.\n/// @retval FD 10 x\n"
+      "/// @retval EOF   y\n";
+  TEST_CHECK(str_eq(rewrite(source, 100), str_from_cstr(source)));
+  TEST_CHECK(str_eq(rewrite("/// @param `a b` one two three\n", 26),
+                    S("/// @param `a b` one two\n///              three\n")));
+}
+
 // Wrapped line-comment continuations reuse the original indent.
 static void test_reindents_wrapped_line_comments(void) {
   const char* source = "  // one two three four five six\n";
@@ -373,6 +384,7 @@ TEST_LIST = {
     {"counts inline doxygen opener width", test_counts_inline_doxygen_opener_width},
     {"tag in plain block stays prose", test_tag_in_plain_block_stays_prose},
     {"aligns direction parameters end to end", test_aligns_direction_parameters_end_to_end},
+    {"tag name atom written once", test_tag_name_atom_written_once},
     {"reindents wrapped line comments", test_reindents_wrapped_line_comments},
     {"hanging blank line has no trailing spaces", test_hanging_blank_line_has_no_trailing_spaces},
     {"preserves hyphen after backtick", test_preserves_hyphen_after_backtick},
