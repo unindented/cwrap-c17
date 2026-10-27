@@ -41,9 +41,11 @@ ptrdiff_t atom_column_width(struct Str text);
  * @brief Splits `text` into unbreakable wrap atoms.
  *
  * A backtick span, an uppercase hex-byte run (`E2 80 94`), and a quantity-plus-unit (`264 MB`) stay
- * together. An unclosed backtick opens an ordinary word. A parenthetical wraps at its spaces, the
- * same as ordinary words. A trailing `.` or `,`, a possessive `'s`, and a hyphenated suffix travel
- * with the atom they follow.
+ * together. A span does when it starts a word or follows only opening brackets at its start, as in
+ * a parenthesized span. A backtick after any other byte, as in TeX's \char`x, or quoted between
+ * brackets opens nothing, and neither does an unclosed backtick. Quotes or emphasis around a span
+ * do not keep it whole. A parenthetical wraps at its spaces, the same as ordinary words. A trailing
+ * `.` or `,`, a possessive `'s`, and a hyphenated suffix travel with the atom they follow.
  *
  * @param text  Paragraph payload.
  * @param arena Arena that owns the atom array. Each atom's `text` is a view into `text`. Must not

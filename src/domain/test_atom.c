@@ -94,6 +94,30 @@ static void test_split_does_not_glue_be_able(void) {
   TEST_CHECK(str_eq(atoms.items[3].text, S("able")));
 }
 
+// A backtick span that starts a word or follows an opening bracket stays one atom with that word,
+// spaces included, so its closer cannot open a span of its own, even when it lands after a bracket.
+// A backtick after any other byte, as in TeX's \char`x, or quoted between brackets opens nothing.
+// `tests/fixtures/backtick-spans.c` covers how this wraps.
+static void test_split_keeps_span_after_opening_bracket(void) {
+  struct Arena arena = test_arena();
+  struct AtomList atoms = atom_split(S("up (`\\ `) is, joined with `, ` and {`\\ `} or [`a b`], "
+                                       "then \\char`x a` (`) b `)` `(`/`{` z"),
+                                     &arena);
+  static const struct Str expected[] = {
+      STR_INIT("up"),      STR_INIT("(`\\ `)"),  STR_INIT("is,"),  STR_INIT("joined"),
+      STR_INIT("with"),    STR_INIT("`, `"),     STR_INIT("and"),  STR_INIT("{`\\ `}"),
+      STR_INIT("or"),      STR_INIT("[`a b`],"), STR_INIT("then"), STR_INIT("\\char`x"),
+      STR_INIT("a`"),      STR_INIT("(`)"),      STR_INIT("b"),    STR_INIT("`)`"),
+      STR_INIT("`(`/`{`"), STR_INIT("z"),
+  };
+  const ptrdiff_t expected_count = (ptrdiff_t)(sizeof(expected) / sizeof(expected[0]));
+  TEST_CHECK(atoms.count == expected_count);
+  for (ptrdiff_t i = 0; i < atoms.count && i < expected_count; i++) {
+    TEST_CHECK(str_eq(atoms.items[i].text, expected[i]));
+    TEST_MSG("atom %td: expected '%.*s'", i, STR_FMT(expected[i]));
+  }
+}
+
 // A possessive, a trailing period, and a hyphenated suffix travel with the preceding atom.
 static void test_split_attaches_possessive_period_and_hyphen(void) {
   struct Arena arena = test_arena();
@@ -116,6 +140,7 @@ TEST_LIST = {
     {"split quantity requires known unit", test_split_quantity_requires_known_unit},
     {"split quantity stops at view end", test_split_quantity_stops_at_view_end},
     {"split does not glue be able", test_split_does_not_glue_be_able},
+    {"split keeps span after opening bracket", test_split_keeps_span_after_opening_bracket},
     {"split attaches possessive period and hyphen",
      test_split_attaches_possessive_period_and_hyphen},
     {NULL, NULL},

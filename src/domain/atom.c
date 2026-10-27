@@ -93,6 +93,9 @@ static bool is_quantity_unit(struct Str text);
  *
  * A possessive `'s`, a trailing `.` or `,`, and a hyphenated suffix such as `-aligned` stay on the
  * atom. Fill joins atoms with a space, so leaving glued text for a later word would invent a break.
+ * A backtick span that starts the atom, or follows only opening brackets at its start, is taken
+ * whole, spaces included, so its closer does not open a span of its own. A backtick quoted between
+ * brackets opens nothing.
  *
  * @param text     Payload bytes.
  * @param index    Start of the atom.
@@ -100,6 +103,22 @@ static bool is_quantity_unit(struct Str text);
  * @return Extended length.
  */
 static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t head_len);
+
+/**
+ * @brief Reports whether a backtick span may open after `c` inside a word.
+ *
+ * @param c Byte before the backtick.
+ * @return `true` for an opening bracket: one of `([{`.
+ */
+static bool is_span_lead(unsigned char c);
+
+/**
+ * @brief Reports whether `c` closes a bracket, so a backtick between it and a lead is quoted.
+ *
+ * @param c Byte after the backtick.
+ * @return `true` for a closing bracket: one of `)]}`.
+ */
+static bool is_span_close(unsigned char c);
 
 ptrdiff_t atom_column_width(struct Str text) {
   ptrdiff_t columns = 0;
@@ -148,10 +167,7 @@ struct AtomList atom_split(struct Str text, struct Arena* arena) {
 }
 
 ptrdiff_t atom_len(struct Str text, ptrdiff_t index) {
-  ptrdiff_t len = backtick_span_len(text, index);
-  if (len == 0) {
-    len = hex_run_len(text, index);
-  }
+  ptrdiff_t len = hex_run_len(text, index);
   if (len == 0) {
     len = quantity_unit_len(text, index);
   }
@@ -328,8 +344,26 @@ static bool is_quantity_unit(struct Str text) {
 
 static ptrdiff_t attach_trailer(struct Str text, ptrdiff_t index, ptrdiff_t head_len) {
   ptrdiff_t end = index + head_len;
+  bool is_in_leads = head_len == 0;
   while (end < text.len && text.data[end] != ' ' && text.data[end] != '\t') {
+    const bool is_quoted =
+        end > index && end + 1 < text.len && is_span_close((unsigned char)text.data[end + 1]);
+    const ptrdiff_t span_len = is_in_leads && !is_quoted ? backtick_span_len(text, end) : 0;
+    if (span_len > 0) {
+      end += span_len;
+      is_in_leads = false;
+      continue;
+    }
+    is_in_leads = is_in_leads && is_span_lead((unsigned char)text.data[end]);
     end++;
   }
   return end - index;
+}
+
+static bool is_span_lead(unsigned char c) {
+  return c == '(' || c == '[' || c == '{';
+}
+
+static bool is_span_close(unsigned char c) {
+  return c == ')' || c == ']' || c == '}';
 }

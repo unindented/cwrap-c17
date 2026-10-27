@@ -8,7 +8,7 @@ struct Arena;
 struct BodyLineList;
 
 /**
- * @brief Refills wrappable runs in `lines` to `width` using STYLE.md atoms.
+ * @brief Refills wrappable runs in `lines` to `width` using the atoms of `atom_split`.
  *
  * Prose paragraphs are joined and greedily filled. A Doxygen tag line starts a new paragraph that
  * its continuation lines join, and it keeps the tag keyword and any documented name on its first
