@@ -94,6 +94,7 @@ Run these commands for help:
 ### Wrapping behavior
 
 - Prose in `//`, `///`, `//!`, `/* */`, `/** */`, and `/*! */` comments is refilled to the column. Each comment keeps its opener, and consecutive line comments merge only when they share one and sit at one indent, whether at the left margin or inside a function. A change of indent, a code line, or a blank line keeps two runs apart.
+- A slash-star comment on one line, with no tab inside it, that fits the column is left as written, so a label such as `/* op    */`, padded to line up with its neighbors, stays aligned.
 - Trailing comments, list items, indented samples, Markdown fences, and comments with no letters or digits, such as banners, are left unchanged.
 - A comment line that starts with a tool directive is left unchanged on its own line, even when it is wider than the column, and the prose on either side of it forms separate paragraphs. The directives are `cppcheck-suppress` (with any suffix, such as `cppcheck-suppress-file`), `NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN`, and `NOLINTEND` (with or without a `(check)` suffix), `clang-format off`, `clang-format on`, and `IWYU pragma:`. Each matches only as a whole word, so `NOLINTED` is prose.
 - In a Doxygen comment (`///`, `//!`, `/**`, or `/*!`), a line that starts with a command such as `@brief` or `\param` starts a new paragraph. Its description wraps under the first word after the command. `@param` and `@retval` descriptions line up in a shared column. `@code` and `@verbatim` regions are left unchanged.

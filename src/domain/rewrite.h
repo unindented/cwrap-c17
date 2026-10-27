@@ -11,9 +11,9 @@ struct Buf;
 /**
  * @brief Rewrites wrappable comments in `source` into `buffer`, leaving code unchanged.
  *
- * Trailing comments after code are copied as-is. Line-comment runs and slash-star blocks are
- * refilled to `width` using the atoms of `atom_split`, Doxygen alignment, and the block's closer
- * convention.
+ * Trailing comments after code are copied as-is, and so is a slash-star comment on one line with no
+ * tab inside it that fits `width`. Other line-comment runs and slash-star blocks are refilled to
+ * `width` using the atoms of `atom_split`, Doxygen alignment, and the block's closer convention.
  *
  * The comment spans and blocks of the file live in `scratch` for the whole call, and each block
  * then works in its own copy of what remains, so one block's lines and atoms are reclaimed before

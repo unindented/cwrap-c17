@@ -199,20 +199,25 @@ static void test_hanging_blank_line_has_no_trailing_spaces(void) {
   TEST_CHECK(str_eq(out, S("/* First paragraph.\n\n   Second paragraph. */\n")));
 }
 
-// A hyphen glued to a backtick span is not given a space.
+// A hyphen glued to a backtick span is not given a space when the refill joins its lines.
 static void test_preserves_hyphen_after_backtick(void) {
   const char* source =
-      "  /* Payload region: `capacity` bytes, `max_align_t`-aligned so any type fits. */\n";
+      "  /* Payload region: `capacity` bytes, `max_align_t`-aligned\n     so any type fits. */\n";
   const struct Str out = rewrite(source, 100);
-  TEST_CHECK(str_eq(out, str_from_cstr(source)));
+  TEST_CHECK(str_eq(
+      out,
+      S("  /* Payload region: `capacity` bytes, `max_align_t`-aligned so any type fits. */\n")));
 }
 
-// An indented hanging comment keeps the original indent. Emit does not write it again.
+// An indented hanging comment keeps the original indent when it is refilled. Emit does not write it
+// again.
 static void test_preserves_indent_on_hanging_comment(void) {
   const char* source =
-      "  /* Combining marks sit on the previous character and occupy no extra column. */\n";
+      "  /* Combining marks sit on the previous character\n     and occupy no extra column. */\n";
   const struct Str out = rewrite(source, 100);
-  TEST_CHECK(str_eq(out, str_from_cstr(source)));
+  TEST_CHECK(str_eq(
+      out,
+      S("  /* Combining marks sit on the previous character and occupy no extra column. */\n")));
 }
 
 // `be able` is two words, so a hanging line can keep `be` when it still fits.
@@ -240,6 +245,22 @@ static void test_breaks_inside_parenthetical(void) {
       " * straddles a break), then reflows the rest.\n"
       " */\n";
   TEST_CHECK(str_eq(out, str_from_cstr(expected)));
+}
+
+// A slash-star comment on one line that fits the column keeps its exact bytes. One that passes the
+// column, spans lines, or holds a tab is refilled, and so is a line comment.
+// `tests/fixtures/same-line-comments.c` covers a padded label on its own line.
+static void test_one_line_block_within_width_unchanged(void) {
+  const char* source = "/* one   two   */\n/*foo*/\n";
+  TEST_CHECK(str_eq(rewrite(source, 40), str_from_cstr(source)));
+  TEST_CHECK(str_eq(rewrite("/* one two three      */\n", 20), S("/* one two three */\n")));
+  TEST_CHECK(str_eq(rewrite("/* one\n   two   */\n", 40), S("/* one two */\n")));
+  TEST_CHECK(str_eq(rewrite("/* a\t\t\t\t\tb */\n", 20), S("/* a b */\n")));
+  // The line, indent included, may fill the column exactly but not pass it.
+  TEST_CHECK(str_eq(rewrite("/* one   two */\n", 15), S("/* one   two */\n")));
+  TEST_CHECK(str_eq(rewrite("    /* one   two */\n", 18), S("    /* one two */\n")));
+  // A line comment is still refilled, spacing included.
+  TEST_CHECK(str_eq(rewrite("// one   two\n", 40), S("// one two\n")));
 }
 
 // A hanging closer-only last line is rewritten as a trailing closer on the last prose line.
@@ -391,6 +412,7 @@ TEST_LIST = {
     {"preserves indent on hanging comment", test_preserves_indent_on_hanging_comment},
     {"keeps be on line when it fits", test_keeps_be_on_line_when_it_fits},
     {"breaks inside parenthetical", test_breaks_inside_parenthetical},
+    {"one line block within width unchanged", test_one_line_block_within_width_unchanged},
     {"hanging closer trails last prose", test_hanging_closer_trails_last_prose},
     {"starred opener line reserves closer", test_starred_opener_line_reserves_closer},
     {"preserves list continuation indent", test_preserves_list_continuation_indent},
