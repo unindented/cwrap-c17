@@ -27,7 +27,7 @@
 
 /** One path the host holds. */
 struct OsMemoryFile {
-  /** Exact path text the file is found by. */
+  /** Path text the file is found by, which a read or a write matches without trailing `/`. */
   struct Str path;
 
   /** Whether the path names a directory rather than a regular file. */
@@ -123,6 +123,17 @@ struct OsMemoryReport {
  * @return The file, or `NULL` when the host holds nothing at `path`.
  */
 static struct OsMemoryFile* file_lookup(struct Os* os, struct Str path) __attribute__((nonnull(1)));
+
+/**
+ * @brief Returns `path` without its trailing `/` characters, keeping a lone `/`.
+ *
+ * A path that ends in `/` must name a directory, so a read or a write looks it up by the name
+ * before them and fails it as `ENOTDIR` when that names a file, as the POSIX host does.
+ *
+ * @param path Path to trim.
+ * @return The leading part of `path`.
+ */
+static struct Str trim_trailing_slashes(struct Str path);
 
 /**
  * @brief Returns the file at exactly `path`, adding an empty regular file there when there is none.
@@ -282,9 +293,12 @@ int os_read(struct Os* os,
   if (open_errno != 0) {
     return report_errno(&report, file_path, open_errno);
   }
-  const struct OsMemoryFile* file = file_lookup(os, file_path);
+  const struct OsMemoryFile* file = file_lookup(os, trim_trailing_slashes(file_path));
   if (file == NULL) {
     return report_errno(&report, file_path, ENOENT);
+  }
+  if (str_endswith(file_path, S("/")) && !file->is_dir) {
+    return report_errno(&report, file_path, ENOTDIR);
   }
   if (file->is_dir) {
     return log_error(log, "%.*s: not a regular file ('%.*s')", STR_FMT(operation),
@@ -346,9 +360,12 @@ int os_write(struct Os* os,
   if (write_errno != 0) {
     return report_errno(&report, file_path, write_errno);
   }
-  const struct OsMemoryFile* existing = file_lookup(os, file_path);
+  const struct OsMemoryFile* existing = file_lookup(os, trim_trailing_slashes(file_path));
+  if (existing != NULL && str_endswith(file_path, S("/")) && !existing->is_dir) {
+    return report_errno(&report, file_path, ENOTDIR);
+  }
   if (existing != NULL && existing->is_dir) {
-    // The POSIX host renames its temporary over the directory, which `rename` refuses.
+    // The POSIX host refuses a directory before it makes its temporary file.
     return report_errno(&report, file_path, EISDIR);
   }
   os_memory_write_bytes(os, file_path, data);
@@ -375,6 +392,13 @@ static struct OsMemoryFile* file_lookup(struct Os* os, struct Str path) {
     }
   }
   return NULL;
+}
+
+static struct Str trim_trailing_slashes(struct Str path) {
+  while (path.len > 1 && path.data[path.len - 1] == '/') {
+    path = str_head(path, path.len - 1);
+  }
+  return path;
 }
 
 static struct OsMemoryFile* file_add(struct Os* os, struct Str path) {

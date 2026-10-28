@@ -431,6 +431,51 @@ static void test_read_rejects_path_with_nul_and_path_at_path_max(void) {
   contract_end(&c);
 }
 
+// A path that ends in `/` must name a directory. A file, or on the POSIX host a symlink to one,
+// fails as `ENOTDIR` in a read and in a write, which leaves the file as it was. A directory
+// followed by `/` is not a regular file to read, and a write over it fails as `EISDIR`.
+static void test_trailing_slash_requires_directory(void) {
+  char root[] = "/tmp/cwrap-os-trailing-slash.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  contract_write(&c, "file", S("x"));
+  static const char* const not_dirs[] = {
+      "file/",
+#if !CWRAP_TEST_OS_MEMORY
+      "file-link/",
+#endif
+  };
+#if !CWRAP_TEST_OS_MEMORY
+  TEST_CHECK(symlink("file", contract_path(&c, "file-link").data) == 0);
+#endif
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(not_dirs) / sizeof(not_dirs[0])); i++) {
+    TEST_CASE(not_dirs[i]);
+    const struct Str path = contract_path(&c, not_dirs[i]);
+    struct Str data = {0};
+    struct Log log = test_log();
+    TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOTDIR), STR_FMT(path)));
+
+    log = test_log();
+    TEST_CHECK(os_write(c.os, path, S("y"), S("op"), &log) == -1);
+    TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOTDIR), STR_FMT(path)));
+    TEST_CHECK(contract_is_file(&c, "file", S("x")));
+  }
+  TEST_CASE_(NULL);
+
+  const struct Str dir = contract_path(&c, "");
+  struct Str data = {0};
+  struct Log log = test_log();
+  TEST_CHECK(os_read(c.os, dir, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "op: not a regular file ('%.*s')\n", STR_FMT(dir)));
+  log = test_log();
+  TEST_CHECK(os_write(c.os, dir, S("y"), S("op"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(EISDIR), STR_FMT(dir)));
+  contract_end(&c);
+}
+
 // Standard input reads to its end without being closed, records nothing, and accumulates input
 // larger than one read step whole. The bytes start where the next allocation from `perm` would, and
 // its free space then begins past them.
@@ -778,6 +823,7 @@ TEST_LIST = {
     {"read rejects embedded nul", test_read_rejects_embedded_nul},
     {"read rejects path with nul and path at path max",
      test_read_rejects_path_with_nul_and_path_at_path_max},
+    {"trailing slash requires directory", test_trailing_slash_requires_directory},
     {"read stdin returns every byte", test_read_stdin_returns_every_byte},
     {"read stdin accepts empty and input at limit",
      test_read_stdin_accepts_empty_and_input_at_limit},

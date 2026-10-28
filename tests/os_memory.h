@@ -16,11 +16,13 @@ struct Os;
 //
 // `cwrap` takes paths and never lists a directory, so the host is a set of files keyed by the exact
 // path text the code passes, with no directory tree, no symlinks and no resolution of `.` or `..`:
-// two spellings of one file are two files here. Without a tree, a write needs no parent directory,
-// where the POSIX host fails one whose parent is missing (`ENOENT`) or is a file (`ENOTDIR`), so
-// those cases are tested in `src/runtime/test_fs.c` only. A path can also name a directory, which
-// holds nothing and is there to be refused as not a regular file. Failures the files cannot produce
-// by their shape, such as `EACCES`, `EIO` or `ENOSPC`, are injected with `os_memory_fail`.
+// two spellings of one file are two files here. A read or a write drops trailing `/` characters to
+// find its file, and fails a file named that way as `ENOTDIR`, as the POSIX host does. Without a
+// tree, a write needs no parent directory, where the POSIX host fails one whose parent is missing
+// (`ENOENT`) or is a file (`ENOTDIR`), so those cases are tested in `src/runtime/test_fs.c` only. A
+// path can also name a directory, which holds nothing and is there to be refused as not a regular
+// file. Failures the files cannot produce by their shape, such as `EACCES`, `EIO` or `ENOSPC`, are
+// injected with `os_memory_fail`.
 //
 // Each operation the code under test calls produces the message the POSIX implementation would for
 // the same situation, so a test written against this host asserts the text a user sees.
@@ -109,7 +111,7 @@ void os_memory_stdin(struct Os* os, struct Str contents, int error_number)
 /**
  * @brief Makes every later `op` on exactly `path` fail with `error_number`.
  *
- * The match is on the path text the code under test passes, as every lookup of this host is.
+ * The match is on the exact path text the code under test passes, trailing `/` characters included.
  *
  * @param os           Host to inject into. Must not be `NULL`.
  * @param op           Operation that fails.

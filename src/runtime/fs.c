@@ -69,7 +69,7 @@ static int open_inspect(struct Str file_path, int* fd_out, struct stat* st_out)
     __attribute__((nonnull(2, 3)));
 
 /**
- * @brief Checks what `open_inspect` saw against the read's limits, the second step of `os_read`.
+ * @brief Checks what `open_inspect` saw against what a read accepts, the second step of `os_read`.
  *
  * It looks only at the descriptor's `fstat`, so it runs before anything is allocated or read.
  *
@@ -77,8 +77,8 @@ static int open_inspect(struct Str file_path, int* fd_out, struct stat* st_out)
  * @param file_path    Path of the file, named in a failure.
  * @param data_len_max Largest accepted file size in bytes.
  * @param report       Where a failure is reported. Must not be `NULL`.
- * @return `0` when the file is regular, within `data_len_max`, or `-1` after reporting which of the
- *         two it is not.
+ * @return `0` when the file is regular, within `data_len_max` and not named with a trailing `/`, or
+ *         `-1` after reporting which of the three it is not.
  */
 static int os_read_check(const struct stat* st,
                          struct Str file_path,
@@ -209,6 +209,19 @@ static int write_all(int fd, struct Str data);
 static int copy_cstr(struct Str path, char cstr_out[static PATH_MAX]);
 
 /**
+ * @brief Reports whether a path ends in `/` but names something other than a directory.
+ *
+ * A path that ends in `/` must name a directory, and POSIX has `open` and `stat` fail with
+ * `ENOTDIR` when it does not. Some systems resolve `link/`, where `link` is a symlink to a file, as
+ * the file, so the host checks what the call found.
+ *
+ * @param path Path the caller gave.
+ * @param mode `st_mode` of what it found.
+ * @return `true` when `path` ends in `/` and `mode` is not a directory's, or `false` otherwise.
+ */
+static bool is_slash_on_non_dir(struct Str path, mode_t mode);
+
+/**
  * @brief Reports `error_number` as the cause of the caller's operation failing on `path`.
  *
  * This is for a failure on the path the caller's operation targeted, as in
@@ -337,6 +350,17 @@ int os_write(struct Os* os,
   if (!has_existing_file && errno != ENOENT) {
     return report_errno(&report, file_path, errno);
   }
+  // `destination_path` may have resolved a symlink, and dropped its `/` with it, so the check takes
+  // the path the caller gave.
+  if (has_existing_file && is_slash_on_non_dir(file_path, st.st_mode)) {
+    return report_errno(&report, file_path, ENOTDIR);
+  }
+  // A directory is refused before the temporary file is made, so it fails as `EISDIR` on every
+  // system. Left to `rename`, one followed by `/` fails as `ENOTDIR` or `ENOTEMPTY` on Linux, and
+  // the temporary file would go inside it.
+  if (has_existing_file && S_ISDIR(st.st_mode)) {
+    return report_errno(&report, file_path, EISDIR);
+  }
 
   const mode_t mode = has_existing_file ? st.st_mode & 07777 : os_write_created_mode();
 
@@ -414,6 +438,9 @@ static int os_read_check(const struct stat* st,
                          struct Str file_path,
                          ptrdiff_t data_len_max,
                          const struct FsReport* report) {
+  if (is_slash_on_non_dir(file_path, st->st_mode)) {
+    return report_errno(report, file_path, ENOTDIR);
+  }
   if (!S_ISREG(st->st_mode)) {
     return log_error(report->log, "%.*s: not a regular file ('%.*s')", STR_FMT(report->operation),
                      STR_FMT(file_path));
@@ -574,6 +601,10 @@ static int copy_cstr(struct Str path, char cstr_out[static PATH_MAX]) {
   }
   cstr_out[path.len] = '\0';
   return 0;
+}
+
+static bool is_slash_on_non_dir(struct Str path, mode_t mode) {
+  return str_endswith(path, S("/")) && !S_ISDIR(mode);
 }
 
 static int report_errno(const struct FsReport* report, struct Str path, int error_number) {
