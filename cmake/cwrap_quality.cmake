@@ -59,9 +59,9 @@ set(cwrap_owned_sources
 )
 set(cwrap_configured_c_source "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.c.in")
 
-find_program(CWRAP_CLANG_FORMAT NAMES clang-format-22 clang-format)
+find_program(CWRAP_CLANG_FORMAT NAMES clang-format-23 clang-format)
 find_program(CWRAP_CWRAP NAMES cwrap)
-find_program(CWRAP_CLANG_TIDY NAMES clang-tidy-22 clang-tidy)
+find_program(CWRAP_CLANG_TIDY NAMES clang-tidy-23 clang-tidy)
 find_program(CWRAP_CPPCHECK NAMES cppcheck)
 
 set(cwrap_clang_tidy_command "${CWRAP_CLANG_TIDY}")
