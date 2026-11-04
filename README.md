@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>cwrap</code> /kræp/</h1>
 
-This is a small C comment formatter written in C17.
+`cwrap` is a small C comment formatter written in C17. It refills the prose in C comments to a column width.
 
 For example, running `cwrap -w 72` converts this:
 
@@ -54,122 +54,116 @@ void* memcpy(void* dest, const void* src, size_t n) {
 ## LLM disclosure
 
 > [!warning]
-> I used LLMs extensively to create this project, mostly Claude Opus 4.8 and 5.
+> I used LLMs extensively to create this project, mostly Claude Opus 4.8, 5, and 5.5.
 
 ## Installation
 
-Download a prebuilt binary from the [Releases](https://github.com/unindented/cwrap-c17/releases) page, or [build from source](#contributing).
+Download a prebuilt binary from the [Releases](https://github.com/unindented/cwrap-c17/releases) page, or [build it from source](#building).
 
 ## Usage
 
-`cwrap` accepts files or standard input:
+### Inputs and options
 
-- `cwrap [options] <file>...`: Rewrap comments in each input file.
-- `cat foo.c | cwrap [options]`: Read from standard input when no file is given.
-- `cwrap [options] - < foo.c`: Use `-` to select standard input explicitly.
+`cwrap` reads files or standard input:
 
-These options control the wrapping and output mode:
+- `cwrap [options] <file>...`: Rewrap the comments in each input file.
+- `cat foo.c | cwrap [options]`: Read standard input when the command line names no file.
+- `cwrap [options] - < foo.c`: Read standard input. The `-` argument selects standard input explicitly.
 
-- `-w, --width N`: Wrap at column `N`. The value must be from 1 through 10000. The default is 100.
-- `-i, --in-place`: Rewrite changed input files in place.
-- `-c, --check`: Write no files and exit non-zero if any input would change.
+These options control the wrapping and the output mode:
 
-These combinations are invalid:
+- `-w, --width N`: Wrap at column `N`. `N` must be from 1 through 10000. The default is 100.
+- `-i, --in-place`: Write the result over each input file that the rewrap changes.
+- `-c, --check`: Do not write any file. Exit with status 1 if the rewrap would change any input.
+
+There's also these options:
+
+- `cwrap --version` (or `-V`): Print the version.
+- `cwrap --help` (or `-h`): Print the usage and the list of options.
+
+The tool rejects these combinations of inputs and options:
 
 - Standard input with file inputs.
 - Standard input with `--in-place`.
 - `--check` with `--in-place`.
 
-In the default mode, the tool prints each file in turn and stops at the first input file that is missing, is not a regular file, cannot be read, or holds a `NUL` byte, after printing the files before it, and exits with status 1. With `--in-place`, the tool first checks every input file and reports each bad one; if any input is bad, it writes no file. A write that fails still stops the tool part-way, after the inputs before it were written. `--check` writes nothing in any case, and reports every input in order.
+`cwrap` exits with status 0 when it succeeds, 1 when it fails or when `--check` finds an input that would change, and 2 when it rejects the command line.
 
-The tool rejects an input file over 64 MiB before it reads the file. The error message gives the limit and the file size. It rejects standard input over 64 MiB once it has read one byte past the limit, and the error message gives the limit.
+### Failures
 
-The tool reserves its memory once, when it starts, in fixed sizes that these limits bound. Reserved memory that the tool does not use costs address space but no memory. Under an address-space limit (`ulimit -v`) that refuses the reservation, the tool halves it until it fits, up to six times, and once more to leave room for the memory it does not reserve, and then holds correspondingly less, apart from the 64 MiB log of its errors, which keeps its full size, so the tool needs a limit of about 360 MB (`ulimit -v 350000`) and under less stops at startup with `failed to run: out of memory`. An input that needs more than the tool reserved, such as a comment whose rewrapped output passes about 4 GiB, makes the tool print the output and the errors found so far and `failed to rewrap file: out of memory ('<path>')`, and exit with status 1.
+An input file is bad when it:
 
-Run these commands for help:
+- does not exist
+- is not a regular file
+- cannot be read
+- contains a `NUL` byte
 
-- `cwrap --version` (or `-V`): Print the version.
-- `cwrap --help` (or `-h`): Print usage and the available options.
+In the default mode, the tool prints the result of each file in turn. At the first bad input file, the tool stops and exits with status 1. It prints the results of the files before the bad file.
 
-### Wrapping behavior
+With `--in-place`, the tool first reads every input file and reports each bad file. If any input file is bad, the tool writes no file. A write can still fail after this first pass. Then the tool stops at that file, and the files before it keep their new contents.
 
-- Prose in `//`, `///`, `//!`, `/* */`, `/** */`, and `/*! */` comments is refilled to the column. Each comment keeps its opener, and consecutive line comments merge only when they share one and sit at one indent, whether at the left margin or inside a function. A change of indent, a code line, or a blank line keeps two runs apart.
-- A slash-star comment on one line, with no tab inside it, that fits the column is left as written, so a label such as `/* op    */`, padded to line up with its neighbors, stays aligned.
-- Trailing comments, list items, indented samples, Markdown fences, and comments with no letters or digits, such as banners, are left unchanged.
-- A comment line that starts with a tool directive is left unchanged on its own line, even when it is wider than the column, and the prose on either side of it forms separate paragraphs. The directives are `cppcheck-suppress` (with any suffix, such as `cppcheck-suppress-file`), `NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN`, and `NOLINTEND` (with or without a `(check)` suffix), `clang-format off`, `clang-format on`, and `IWYU pragma:`. Each matches only as a whole word, so `NOLINTED` is prose.
-- In a Doxygen comment (`///`, `//!`, `/**`, or `/*!`), a line that starts with a command such as `@brief` or `\param` starts a new paragraph. Its description wraps under the first word after the command. `@param` and `@retval` descriptions line up in a shared column. `@code` and `@verbatim` regions are left unchanged.
+`--check` never writes a file, and it reports every input in order.
 
-## Contributing
+### Limits
+
+The tool rejects an input file larger than 64 MiB before it reads the file. The error message gives the limit and the file size. The tool rejects standard input larger than 64 MiB when it reads one byte past the limit. This error message gives the limit.
+
+The tool reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the tool does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the tool makes its reservation smaller until it fits, so the tool has less room for its data. The log of the errors keeps its full size of 64 MiB in all cases. [ARCHITECTURE.md](ARCHITECTURE.md#memory-fixed-sizes-reserved-then-committed-on-demand) describes this process. These fixed sizes have two results:
+
+- The tool needs about 360 MB (`ulimit -v 350000`). With a lower limit, the tool stops at startup with `failed to run: out of memory`.
+- An input can need more memory than the tool reserved, for example a comment whose rewrapped output is larger than about 4 GiB. Then the tool prints the output and the errors up to that point, prints `failed to rewrap file: out of memory ('<path>')`, and exits with status 1.
+
+## Wrapping behavior
+
+- The tool refills the prose in `//`, `///`, `//!`, `/* */`, `/** */`, and `/*! */` comments to the column. Each comment keeps its opener. Consecutive line comments merge only when they have the same opener and the same indent, at the left margin or inside a function. A change of indent, a code line or a blank line separates two runs of line comments.
+- The tool does not change a slash-star comment on one line when the comment fits the column and contains no tab, so a label such as `/* op    */`, with padding that aligns it with its neighbors, stays aligned.
+- The tool does not change trailing comments, list items, indented samples, Markdown fences, or comments with no letters or digits, such as banners.
+- A comment line that starts with a tool directive stays unchanged on its own line, even when the line is wider than the column. The prose before the directive and the prose after it are separate paragraphs. The directives are `cppcheck-suppress`, with any suffix, such as `cppcheck-suppress-file`; `NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN` and `NOLINTEND`, with or without a `(check)` suffix; `clang-format off` and `clang-format on`; and `IWYU pragma:`. Each directive matches only as a whole word, so `NOLINTED` is prose.
+- In a Doxygen comment (`///`, `//!`, `/**`, or `/*!`), a line that starts with a command such as `@brief` or `\param` starts a new paragraph. The description of the command wraps under the first word after the command. The descriptions of all `@param` commands in a comment align in one column, and the descriptions of all `@retval` commands align in another column. The tool does not change `@code` and `@verbatim` regions.
+
+## Development
+
+[ARCHITECTURE.md](ARCHITECTURE.md) describes the code. [BUILD.md](BUILD.md) describes the CMake targets and the reasons for the configurations below. [STYLE.md](STYLE.md) describes the code style.
 
 ### Prerequisites
 
-- POSIX-like system with CMake 3.25 or later and a C17 compiler such as Clang or GCC.
-- Optional build tools: `ninja` for the multi-config portability check.
-- Optional quality tools: `clang-format`, `cwrap`, `clang-tidy`, `cppcheck`.
+- A POSIX-like system with CMake 3.25 or later and a C17 compiler such as Clang or GCC.
+- Optional build tools: `ninja` for the `multi` preset.
+- Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
+- Zig 0.17 and `llvm-strip` for the Linux `musl` archives.
 
-Vendored dependencies are included under `vendor/`:
-
-- [`sharedstuff`](https://github.com/unindented/sharedstuff-c17): Arena allocation, counted strings, output buffers, and the diagnostic log.
-- [`copt`](https://github.com/fardaniqbal/copt): Command line option parsing.
-- [`acutest`](https://github.com/mity/acutest): Tests.
+The source tree includes the dependencies in [vendor/](vendor/).
 
 ### Building
 
-Presets keep every build out of the source tree, in `build/<preset>`. A build with `CC` set goes in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`, so each compiler keeps its own CMake cache: CMake reads `CC` only when it first configures a directory. clang-tidy runs only with Clang, because it rejects GCC's warning options. The commands below use eight parallel build jobs. Adjust that number for the machine.
-
-#### Debug build
-
-The debug build enables AddressSanitizer and UndefinedBehaviorSanitizer. It also runs `clang-tidy` and `cppcheck` during compilation when they are available.
+Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
 
 ```sh
 cmake --preset debug
 cmake --build --preset debug -j 8
 ```
 
-The binary is `build/debug/bin/cwrap`.
+| Preset | Configuration | Binary |
+| --- | --- | --- |
+| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/bin/cwrap` |
+| `release` | `RelWithDebInfo`, with no tests. The binary in the build tree keeps its debug information, and packaging strips the installed copy. | `build/release/bin/cwrap` |
+| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/bin/Debug/cwrap`, `build/multi/bin/RelWithDebInfo/cwrap` |
 
-To run linting after configuring this preset:
+`clang-tidy` runs only with Clang, because it rejects the warning options of GCC. To run linting, configure the `debug` preset, and then run this command:
 
 ```sh
 cmake --build --preset lint
 ```
 
-#### Release build
-
-The release preset uses `RelWithDebInfo`, treats compiler warnings as errors, and does not build the tests. The build-tree binary retains its debug information. Packaging strips the installed copy.
-
-```sh
-cmake --preset release
-cmake --build --preset release -j 8
-```
-
-The binary is `build/release/bin/cwrap`.
-
-#### Multi-config build
-
-The multi-config preset uses the `Ninja Multi-Config` generator. One configured tree can build both configurations:
-
-```sh
-cmake --preset multi
-cmake --build --preset multi-debug -j 8
-cmake --build --preset multi-relwithdebinfo -j 8
-```
-
-The binaries are `build/multi/bin/Debug/cwrap` and `build/multi/bin/RelWithDebInfo/cwrap`.
-
 ### Testing
 
-CTest registers the unit test suite and the end-to-end golden and idempotence test suites.
-
-#### Debug tests
+CTest registers the unit tests and the end-to-end golden and idempotence tests. Build a preset, and then run its tests:
 
 ```sh
-cmake --preset debug
-cmake --build --preset debug -j 8
 ctest --preset debug -j 8
 ```
 
-To select part of the debug suite:
+The test presets are `debug`, `multi-debug`, and `multi-relwithdebinfo`. The `multi-relwithdebinfo` tests check the same CMake configuration as the `release` preset, which builds no tests. To run only part of a suite, select the tests by label or by name pattern:
 
 ```sh
 ctest --preset debug -L unit -j 8
@@ -178,54 +172,31 @@ ctest --preset debug -L idempotent -j 8
 ctest --preset debug -R rewrite -j 8
 ```
 
-#### Multi-config tests
+### Continuous integration
 
-Each configuration must be named when building and testing:
+The workflow presets run the same configure, build, and test steps as CI:
 
-```sh
-cmake --preset multi
+| Workflow | Steps |
+| --- | --- |
+| `cmake --workflow --preset ci-debug` | Build in `Debug`, run linting, and run all ASan and UBSan tests. |
+| `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
+| `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
 
-cmake --build --preset multi-debug -j 8
-ctest --preset multi-debug -j 8
-
-cmake --build --preset multi-relwithdebinfo -j 8
-ctest --preset multi-relwithdebinfo -j 8
-```
-
-The `multi-relwithdebinfo` test preset exercises the same CMake configuration used by the release build. The release preset itself does not build tests.
-
-#### CI workflows
-
-Workflow presets run the complete configure, build, and test sequences used by CI. CI runs `ci-multi` a second time with `CC=gcc-14` to check GCC:
-
-- `cmake --workflow --preset ci-debug`: `Debug` build, linting, and all ASan/UBSan tests.
-- `cmake --workflow --preset ci-release`: `RelWithDebInfo` build.
-- `cmake --workflow --preset ci-multi`: `Debug` and `RelWithDebInfo` builds and tests under the `Ninja Multi-Config` generator.
-
-To run the same Linux workflows from a machine with Podman, build the pinned Ubuntu image:
+To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from [Containerfile](Containerfile). Then run each workflow in a new container:
 
 ```sh
 podman build --tag cwrap-linux-ci --file Containerfile .
-```
-
-Docker accepts the same command with `docker` in place of `podman`. The image contains a snapshot of the source tree, including vendored dependencies, so container builds do not mix Linux products with the host's `build/` directory. Run each workflow preset in a fresh container:
-
-```sh
 podman run --rm cwrap-linux-ci ci-debug
 podman run --rm cwrap-linux-ci ci-release
 podman run --rm cwrap-linux-ci ci-multi
 podman run --rm -e CC=gcc-14 cwrap-linux-ci ci-multi
 ```
 
-The image supports x86-64 and AArch64 hosts and pins LLVM 23 and GCC 14. Zig remains a release-only dependency and is not included in the CI image.
-
-See [BUILD.md](BUILD.md) for the target graph and the reasons behind these configurations.
+The image contains a snapshot of the source tree, including the vendored dependencies, without `.git/` and `build/`, which [.containerignore](.containerignore) excludes, so the Linux build products stay in the container and do not go into the `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14. It does not include Zig, because only the release archives need Zig.
 
 ### Packaging
 
-Only release configurations have package presets. There is intentionally no debug package.
-
-#### Native release package
+Only the release configurations have package presets. Build a preset, and then package it:
 
 ```sh
 cmake --preset release
@@ -233,41 +204,31 @@ cmake --build --preset release -j 8
 cpack --preset release
 ```
 
-The stripped archive is written to `build/release/`.
+| Preset | Archive |
+| --- | --- |
+| `release` | A stripped native archive in `build/release/`. |
+| `release-linux-x86_64` | `build/release-linux-x86_64/cwrap-<version>-x86_64-linux-musl.tar.gz`, cross-built with Zig. |
+| `release-linux-aarch64` | `build/release-linux-aarch64/cwrap-<version>-aarch64-linux-musl.tar.gz`, cross-built with Zig. |
 
-#### x86-64 Linux `musl` package
-
-This cross-build requires Zig 0.17 and `llvm-strip`.
-
-```sh
-cmake --preset release-linux-x86_64
-cmake --build --preset release-linux-x86_64 -j 8
-cpack --preset release-linux-x86_64
-```
-
-The archive is `build/release-linux-x86_64/cwrap-<version>-x86_64-linux-musl.tar.gz`.
-
-#### AArch64 Linux `musl` package
-
-This cross-build also requires Zig 0.17 and `llvm-strip`.
-
-```sh
-cmake --preset release-linux-aarch64
-cmake --build --preset release-linux-aarch64 -j 8
-cpack --preset release-linux-aarch64
-```
-
-The archive is `build/release-linux-aarch64/cwrap-<version>-aarch64-linux-musl.tar.gz`.
-
-#### Source package
-
-A source package needs configuration but does not need a compiled binary:
+A source archive needs a configured tree but no compiled binary. It does not contain build products or private workspace metadata:
 
 ```sh
 cmake --preset release
 cpack --config build/release/CPackSourceConfig.cmake
 ```
 
-The archive is `build/release/cwrap-<version>-source.tar.gz`. It excludes build products and private workspace metadata.
+The source archive is `build/release/cwrap-<version>-source.tar.gz`.
 
-Every archive version comes from `project(VERSION)` in `CMakeLists.txt`. A release commit must be tagged with the matching `vMAJOR.MINOR.PATCH`.
+The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](CMakeLists.txt). Tag each release commit with the matching `vMAJOR.MINOR.PATCH`.
+
+## Dependencies
+
+[vendor/](vendor/) contains these dependencies. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists their licenses.
+
+- [sharedstuff](https://github.com/unindented/sharedstuff-c17): Arena allocation, counted strings, output buffers, and the diagnostic log.
+- [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
+- [acutest](https://github.com/mity/acutest): Unit tests.
+
+## License
+
+`cwrap` is MIT-licensed, as [LICENSE.txt](LICENSE.txt) states.
