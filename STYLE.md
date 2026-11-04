@@ -79,7 +79,7 @@ This guide takes its ideas and conventions from these sources:
 - Use typedefs only for callback signatures and for aliases that hide a representation on purpose.
 - Represent text and byte ranges as `struct Str` (`shared/str.h`), and pass and return a `struct Str` by value. A `NUL` inside a `struct Str` is an ordinary byte.
   - Test code is the exception where its arguments are literals. The fixture APIs in `tests/os_memory.h` and `tests/test_support.h`, the `contract_*` helpers in `src/runtime/test_os.c`, and the helpers of a test file take and return paths, expected text, and messages as C strings, so that a test can write its files and its expectations as literals.
-    - A fixture whose contents can hold any byte takes the contents as a `struct Str`: `os_memory_write_bytes`, whose path is also a `struct Str`, `os_memory_stdin`, `contract_write` and `contract_stdin`.
+    - A fixture whose contents can hold any byte takes the contents as a `struct Str`: `os_memory_write_bytes`, whose path is also a `struct Str`, `os_memory_stdin`, `contract_write`, `contract_is_file` and `contract_stdin`.
     - The capture helpers in `tests/test_support.h` fill a terminated `char` buffer that the caller supplies. That buffer's `ptrdiff_t` length converts to `size_t` one time, at `fread`.
 - Make every length, count, index, column, and offset `ptrdiff_t`. Convert a value to a C string or to `size_t` only at the call into libc, POSIX, or a vendored API, with one explicit conversion there, such as `copy_cstr` in `runtime/fs.c` or `(size_t)s.len`. Assert that the value is non-negative where its construction does not already guarantee that. `argc` stays the `int` that `main` receives and `copt` takes. The argument count that comes from `argc` becomes a `ptrdiff_t` one time, where the code counts the paths.
 - Order struct fields to make ownership and invariants obvious:
@@ -222,7 +222,7 @@ This guide takes its ideas and conventions from these sources:
 - Keep the distinctions that [Errors and diagnostics](#errors-and-diagnostics) requires visible to the tests: a missing key and a key with the wrong type must fail different assertions, not the same loose assertion.
 - Derive an expected limit from its named constant, and do not repeat the literal. Spell out a literal only when the constant is file-local, and note that changing it must update the test.
 - Where correct behavior must not depend on an unspecified detail, such as how `qsort` orders elements that compare equal, assert the same result for more than one input order.
-- Draw random inputs from the seeded generator in `tests/test_support.h` (`struct TestRng`), so that a random test runs in the normal suite and gets the same inputs in every run. Its seed is the fixed `TEST_RNG_SEED_DEFAULT`, and a failed check names the case that the generator made.
+- Draw random inputs from the seeded generator in `tests/test_support.h` (`struct TestRng`), so that a random test runs in the normal suite and reaches the same inputs on every run. Its seed is the fixed `TEST_RNG_SEED_DEFAULT`, and a failed check names the case that the generator made.
 - Do not restate golden test coverage in a unit test. Note which golden test provides the end-to-end assertion instead.
 
 ### Order and comments

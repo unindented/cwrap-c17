@@ -123,7 +123,7 @@ Every module follows these rules. When a design decision is behind a rule, the l
 ### Memory
 
 - Every first-party allocation comes from an arena. `cwrap` has three arenas: the log, which holds the errors of the run; the input arena, which holds the source and the rewritten output of one input; and the scratch, which holds the temporary data of one input. `os_read` and `os_read_stdin` return their result in the caller's arena. See [Memory: arenas only](#memory-arenas-only) and [Memory: a log, an input arena and a scratch, and no pool](#memory-a-log-an-input-arena-and-a-scratch-and-no-pool).
-- A command reserves its memory once, when it starts: the log at its full size, and the input arena and the scratch as one block, through `arena_reserve_halving`. Each arena has a fixed size, which the input limit and the measured shapes bound, as its definition in `cmd_wrap.c` states. Each input gets the input arena and the scratch by value, so the next input reuses their memory. An arena commits pages only when its allocations get to them, and then commits one mebibyte more than the allocation needs. Only committed pages count against the system's memory. See [Memory: fixed sizes, reserved, then committed on demand](#memory-fixed-sizes-reserved-then-committed-on-demand).
+- A command reserves its memory once, when it starts: the log at its full size, and the input arena and the scratch as one block, through `arena_reserve_halving`. Each arena has a fixed size, which the input limit and the measured shapes bound, as its definition in `cmd_wrap.c` states. Each input gets the input arena and the scratch by value, so the next input reuses their memory. An arena commits pages only when its allocations get to them, and then commits one mebibyte more than the allocation needs. Only committed pages count against the system's memory. See [Memory: reserve, then commit on demand](#memory-reserve-then-commit-on-demand).
 - An allocation that does not fit calls `os_oom`, which reports and exits, so no call site checks for allocation failure, and the domain cannot fail. See [Out of memory exits the process](#out-of-memory-exits-the-process).
 - Under the address sanitizer, two arena allocations are never adjacent, so code that extends the last allocation in place uses `arena_extend`. See [Address sanitizer coverage in arenas](#address-sanitizer-coverage-in-arenas).
 - A log's arena is never an arena that a callee gets by value, so the log never grows into bytes that a callee uses. See [A log must not grow in a borrowed arena](#a-log-must-not-grow-in-a-borrowed-arena).
@@ -191,7 +191,7 @@ Each decision below states what the code does and why, and some decisions also s
 - The reservation for the command line has a fixed size, and does not take its size from `sysconf(_SC_ARG_MAX)`. glibc derives that value from `RLIMIT_STACK`, so the value is very large when the stack is unlimited, and musl gives a different value.
 - `cwrap` runs on one thread, because there is no reason to rewrap inputs in parallel. Also, `os_write` reads the umask by setting it and restoring it, and a diagnostic calls `strerror`. Both are safe only with one thread.
 
-### Memory: fixed sizes, reserved, then committed on demand
+### Memory: reserve, then commit on demand
 
 **Decision.**
 
